@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "atlassian-browser-mcp"
 version = "1.0.0"
@@ -10,4 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-atlassian-browser-mcp = "atlassian_browser_mcp_full:main_mcp.run"
+atlassian-browser-mcp = "atlassian_browser_mcp_full:main"
+
+[tool.setuptools]
+py-modules = ["atlassian_browser_auth", "atlassian_browser_mcp_full"]

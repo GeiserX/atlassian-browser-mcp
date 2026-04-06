@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 import os
+from importlib.metadata import version as package_version
 from typing import Any, Literal
 
 import requests
@@ -45,6 +47,37 @@ _ORIGINAL_LOOKUP_USER_BY_PERMISSIONS = UsersMixin._lookup_user_by_permissions
 _ORIGINAL_FORMS_API_REQUEST = FormsApiMixin._make_forms_api_request
 
 
+def assert_upstream_compatibility() -> None:
+    current_version = package_version("mcp-atlassian")
+    if not current_version.startswith("0.21."):
+        raise RuntimeError(
+            "This wrapper is pinned for mcp-atlassian 0.21.x, "
+            f"but found {current_version}."
+        )
+
+    expected_signatures = [
+        ("JiraClient.__init__", _ORIGINAL_JIRA_INIT, ["self", "config"]),
+        ("ConfluenceClient.__init__", _ORIGINAL_CONFLUENCE_INIT, ["self", "config"]),
+        (
+            "UsersMixin._lookup_user_by_permissions",
+            _ORIGINAL_LOOKUP_USER_BY_PERMISSIONS,
+            ["self", "username"],
+        ),
+        (
+            "FormsApiMixin._make_forms_api_request",
+            _ORIGINAL_FORMS_API_REQUEST,
+            ["self", "method", "endpoint", "data"],
+        ),
+    ]
+    for label, function, expected_params in expected_signatures:
+        actual_params = list(inspect.signature(function).parameters)
+        if actual_params[: len(expected_params)] != expected_params:
+            raise RuntimeError(
+                f"{label} signature changed. "
+                f"Expected prefix {expected_params}, got {actual_params}."
+            )
+
+
 def _apply_network_config(
     session: requests.Session,
     config: Any,
@@ -70,9 +103,14 @@ def _apply_network_config(
     if proxies:
         session.proxies.update(proxies)
         for key, value in proxies.items():
-            log_config_param(logger, service_name, f"{key.upper()}_PROXY", value, sensitive=True)
+            log_config_param(
+                logger,
+                service_name,
+                f"{key.upper()}_PROXY",
+                value,
+                sensitive=True,
+            )
     if config.no_proxy and isinstance(config.no_proxy, str):
-        os.environ["NO_PROXY"] = config.no_proxy
         log_config_param(logger, service_name, "NO_PROXY", config.no_proxy)
 
 
@@ -221,5 +259,10 @@ def atlassian_login(
     return interactive_login(target, url)
 
 
-if __name__ == "__main__":
+def main() -> None:
+    assert_upstream_compatibility()
     main_mcp.run()
+
+
+if __name__ == "__main__":
+    main()

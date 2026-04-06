@@ -19,6 +19,16 @@ from playwright.sync_api import Error, TimeoutError, sync_playwright
 ServiceName = Literal["jira", "confluence"]
 
 _LOGIN_LOCK = threading.Lock()
+_USERNAME_SELECTORS = [
+    'input[name="identifier"]',
+    'input[name="username"]',
+    'input[name="email"]',
+    'input[type="email"]',
+    'input[id*="user"]',
+    'input[id*="email"]',
+    'input[autocomplete="username"]',
+    'input[type="text"]',
+]
 
 
 def _env_truthy(name: str, default: bool) -> bool:
@@ -98,12 +108,20 @@ class BrowserAuthConfig:
 def _wait_for_any_selector(
     page, selectors: list[str], timeout_ms: int = 1800
 ) -> str | None:
+    try:
+        page.locator(", ".join(selectors)).first.wait_for(
+            state="visible",
+            timeout=timeout_ms,
+        )
+    except TimeoutError:
+        return None
+    except Error:
+        return None
+
     for selector in selectors:
         try:
-            page.locator(selector).first.wait_for(state="visible", timeout=timeout_ms)
-            return selector
-        except TimeoutError:
-            continue
+            if page.locator(selector).first.is_visible():
+                return selector
         except Error:
             continue
     return None
@@ -112,19 +130,7 @@ def _wait_for_any_selector(
 def _best_effort_prefill(page, username: str | None) -> None:
     if not username:
         return
-    selector = _wait_for_any_selector(
-        page,
-        [
-            'input[name="identifier"]',
-            'input[name="username"]',
-            'input[name="email"]',
-            'input[type="email"]',
-            'input[id*="user"]',
-            'input[id*="email"]',
-            'input[autocomplete="username"]',
-            'input[type="text"]',
-        ],
-    )
+    selector = _wait_for_any_selector(page, _USERNAME_SELECTORS)
     if not selector:
         return
     try:

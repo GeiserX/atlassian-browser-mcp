@@ -4,3 +4,4 @@ __pycache__/
 .atlassian-browser-profile/
 .atlassian-browser-state.json
 .env
+*.egg-info/
