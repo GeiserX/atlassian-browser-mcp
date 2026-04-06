@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.venv-atlassian-browser/
+.atlassian-browser-profile/
+.atlassian-browser-state.json
+.env
