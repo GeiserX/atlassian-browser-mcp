@@ -9,7 +9,7 @@ description = "Browser-backed MCP server wrapping upstream mcp-atlassian with Pl
 requires-python = ">=3.12"
 dependencies = [
     "mcp-atlassian~=0.21.0",
-    "playwright>=1.40",
+    "playwright>=1.58.0",
     "requests>=2.31",
 ]
 
