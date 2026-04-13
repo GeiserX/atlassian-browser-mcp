@@ -22,10 +22,13 @@ from atlassian_browser_auth import (
 # Make the upstream server expose its complete tool surface.
 os.environ.setdefault("TOOLSETS", "all")
 os.environ.setdefault("ATLASSIAN_BROWSER_AUTH_ENABLED", "true")
-os.environ.setdefault("JIRA_URL", "https://jira.example.com")
-os.environ.setdefault("CONFLUENCE_URL", "https://confluence.example.com")
 os.environ.setdefault("JIRA_PERSONAL_TOKEN", "BROWSER_SESSION")
 os.environ.setdefault("CONFLUENCE_PERSONAL_TOKEN", "BROWSER_SESSION")
+
+if not os.environ.get("JIRA_URL"):
+    raise RuntimeError("JIRA_URL environment variable is required")
+if not os.environ.get("CONFLUENCE_URL"):
+    raise RuntimeError("CONFLUENCE_URL environment variable is required")
 
 from mcp_atlassian.confluence.client import ConfluenceClient
 from mcp_atlassian.confluence.config import ConfluenceConfig
@@ -254,7 +257,7 @@ def atlassian_login(
     target: Literal["jira", "confluence"] = "jira",
     url: str | None = None,
 ) -> dict[str, Any]:
-    """Launch a visible browser and wait for manual SSO / MFA."""
+    """Launch a visible browser and wait for manual SSO / MFA login."""
 
     return interactive_login(target, url)
 

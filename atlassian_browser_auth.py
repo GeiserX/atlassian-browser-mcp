@@ -57,10 +57,8 @@ class BrowserAuthConfig:
 
     @classmethod
     def from_env(cls) -> "BrowserAuthConfig":
-        jira_url = os.environ.get("JIRA_URL", "https://jira.example.com").rstrip("/")
-        confluence_url = os.environ.get(
-            "CONFLUENCE_URL", "https://confluence.example.com"
-        ).rstrip("/")
+        jira_url = os.environ["JIRA_URL"].rstrip("/")
+        confluence_url = os.environ["CONFLUENCE_URL"].rstrip("/")
         base_dir = Path(__file__).resolve().parent
         return cls(
             jira_url=jira_url,
@@ -165,7 +163,7 @@ def interactive_login(
             flush=True,
         )
         print(
-            "[atlassian-browser-auth] Finish SSO / MFA in the browser window. "
+            "[atlassian-browser-auth] Complete SSO / MFA in the browser window. "
             "The request will resume automatically once the page lands on Jira or Confluence.",
             file=sys.stderr,
             flush=True,
@@ -256,21 +254,34 @@ def _apply_storage_state_cookies(
         )
 
 
+def _load_sso_markers() -> tuple[str, ...]:
+    """Load SSO detection markers from env or use sensible defaults."""
+    custom = os.environ.get("ATLASSIAN_SSO_MARKERS")
+    if custom:
+        return tuple(m.strip() for m in custom.split(",") if m.strip())
+    return (
+        "oauth2/authorize",
+        "The page has timed out",
+        "Sign in with your account",
+        "saml2/idp/SSOService",
+        "/adfs/ls",
+        "login.microsoftonline.com",
+        "accounts.google.com/o/saml2",
+        "auth.pingone.com",
+        "login.okta.com",
+    )
+
+
 def looks_like_sso_response(response: requests.Response) -> bool:
     final_url = response.url or ""
     content_type = response.headers.get("Content-Type", "")
     body_sample = response.text[:2000] if "text/" in content_type else ""
-    markers = (
-        "Corporate SSO - Sign In",
-        "oauth2/authorize",
-        "sso.example.com",
-        "The page has timed out",
-        "Sign in with your account",
-    )
-    if "sso.example.com" in final_url or "oauth2/authorize" in final_url:
+    markers = _load_sso_markers()
+    url_markers = [m for m in markers if "/" in m or "." in m]
+    if any(marker in final_url for marker in url_markers):
         return True
     if any(
-        "sso.example.com" in prior.url or "oauth2/authorize" in prior.url
+        any(marker in prior.url for marker in url_markers)
         for prior in response.history
     ):
         return True

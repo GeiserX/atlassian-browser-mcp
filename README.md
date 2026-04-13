@@ -32,13 +32,14 @@ Or configure as an MCP server in your editor (Cursor, Claude Code, etc.) pointin
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `JIRA_URL` | `https://jira.example.com` | Jira base URL |
-| `CONFLUENCE_URL` | `https://confluence.example.com` | Confluence base URL |
+| `JIRA_URL` | _(required)_ | Jira base URL (e.g. `https://jira.example.com`) |
+| `CONFLUENCE_URL` | _(required)_ | Confluence base URL (e.g. `https://confluence.example.com`) |
 | `ATLASSIAN_BROWSER_AUTH_ENABLED` | `true` | Enable browser auth (set `false` to fall back to token auth) |
 | `ATLASSIAN_BROWSER_PROFILE_DIR` | `./.atlassian-browser-profile` | Persistent Chromium profile directory |
 | `ATLASSIAN_STORAGE_STATE` | `./.atlassian-browser-state.json` | Playwright storage-state file |
 | `ATLASSIAN_LOGIN_TIMEOUT_SECONDS` | `300` | Seconds to wait for manual login |
 | `ATLASSIAN_USERNAME` | _(none)_ | Optional: prefill username on SSO page |
+| `ATLASSIAN_SSO_MARKERS` | _(auto)_ | Comma-separated URL/text markers for SSO redirect detection. Defaults cover Okta, ADFS, Azure AD, PingOne, Google SAML |
 | `TOOLSETS` | `all` | Which upstream toolsets to enable |
 
 ## Requirements
@@ -46,4 +47,4 @@ Or configure as an MCP server in your editor (Cursor, Claude Code, etc.) pointin
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/) (for dependency management)
 - Chromium (installed automatically by Playwright)
-- VPN access to your Atlassian instance
+- Network access to your Atlassian instance
