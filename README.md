@@ -1,5 +1,10 @@
 # atlassian-browser-mcp
 
+[![License: GPL-3.0](https://img.shields.io/github/license/GeiserX/atlassian-browser-mcp?style=flat-square)](LICENSE)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-3572A5?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![GitHub stars](https://img.shields.io/github/stars/GeiserX/atlassian-browser-mcp?style=flat-square)](https://github.com/GeiserX/atlassian-browser-mcp/stargazers)
+[![mcp-atlassian](https://img.shields.io/badge/wraps-mcp--atlassian%200.21.x-blue?style=flat-square)](https://github.com/sooperset/mcp-atlassian)
+
 MCP server that wraps the upstream [mcp-atlassian](https://github.com/sooperset/mcp-atlassian) toolset with browser-cookie authentication via Playwright. Designed for Atlassian Server/Data Center instances behind corporate SSO (Okta, SAML, etc.) where API tokens are not available.
 
 ## How it works
