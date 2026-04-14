@@ -53,3 +53,4 @@ Or configure as an MCP server in your editor (Cursor, Claude Code, etc.) pointin
 - [uv](https://docs.astral.sh/uv/) (for dependency management)
 - Chromium (installed automatically by Playwright)
 - Network access to your Atlassian instance
+
