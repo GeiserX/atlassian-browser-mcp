@@ -303,11 +303,21 @@ class BrowserCookieSession(requests.Session):
         self.browser_config = config or BrowserAuthConfig.from_env()
         self.trust_env = False
         self.headers.update({"User-Agent": self.browser_config.user_agent})
-        self.refresh_cookies()
+        try:
+            self.refresh_cookies()
+        except Exception:
+            print(
+                f"[atlassian-browser-auth] Could not load browser cookies for {service}; "
+                "session will start without authentication",
+                file=sys.stderr,
+                flush=True,
+            )
 
     def refresh_cookies(self) -> None:
         if not self.browser_config.storage_state.exists():
             interactive_login(self.service, config=self.browser_config)
+        if not self.browser_config.storage_state.exists():
+            return
         storage_state = _load_storage_state(self.browser_config.storage_state)
         _apply_storage_state_cookies(self, storage_state, self.base_url)
 
