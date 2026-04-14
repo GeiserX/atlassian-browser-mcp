@@ -315,6 +315,8 @@ class BrowserCookieSession(requests.Session):
 
     def refresh_cookies(self) -> None:
         if not self.browser_config.storage_state.exists():
+            if not sys.stdin.isatty() and not os.environ.get("DISPLAY"):
+                return
             interactive_login(self.service, config=self.browser_config)
         if not self.browser_config.storage_state.exists():
             return
