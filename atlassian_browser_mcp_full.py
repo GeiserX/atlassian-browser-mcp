@@ -25,11 +25,6 @@ os.environ.setdefault("ATLASSIAN_BROWSER_AUTH_ENABLED", "true")
 os.environ.setdefault("JIRA_PERSONAL_TOKEN", "BROWSER_SESSION")
 os.environ.setdefault("CONFLUENCE_PERSONAL_TOKEN", "BROWSER_SESSION")
 
-if not os.environ.get("JIRA_URL"):
-    raise RuntimeError("JIRA_URL environment variable is required")
-if not os.environ.get("CONFLUENCE_URL"):
-    raise RuntimeError("CONFLUENCE_URL environment variable is required")
-
 from mcp_atlassian.confluence.client import ConfluenceClient
 from mcp_atlassian.confluence.config import ConfluenceConfig
 from mcp_atlassian.jira.client import JiraClient
@@ -263,6 +258,10 @@ def atlassian_login(
 
 
 def main() -> None:
+    if not os.environ.get("JIRA_URL"):
+        raise RuntimeError("JIRA_URL environment variable is required")
+    if not os.environ.get("CONFLUENCE_URL"):
+        raise RuntimeError("CONFLUENCE_URL environment variable is required")
     assert_upstream_compatibility()
     main_mcp.run()
 
