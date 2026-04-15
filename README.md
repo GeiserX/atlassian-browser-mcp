@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/banner.svg" alt="atlassian-browser-mcp banner" width="900"/>
+</p>
+
 # atlassian-browser-mcp
 
 [![License: GPL-3.0](https://img.shields.io/github/license/GeiserX/atlassian-browser-mcp?style=flat-square)](LICENSE)
