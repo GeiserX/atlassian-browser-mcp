@@ -1,0 +1,203 @@
+name: Track upstream mcp-atlassian
+
+on:
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  check-upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get current pin
+        id: current
+        run: |
+          PIN=$(grep 'mcp-atlassian' pyproject.toml | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+          echo "version=$PIN" >> "$GITHUB_OUTPUT"
+          echo "Current pin: $PIN"
+
+      - name: Get latest upstream release
+        id: upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LATEST=$(gh api repos/sooperset/mcp-atlassian/releases/latest --jq '.tag_name' | sed 's/^v//')
+          echo "version=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "Latest upstream: $LATEST"
+
+          RELEASE_URL=$(gh api repos/sooperset/mcp-atlassian/releases/latest --jq '.html_url')
+          echo "url=$RELEASE_URL" >> "$GITHUB_OUTPUT"
+
+          RELEASE_BODY=$(gh api repos/sooperset/mcp-atlassian/releases/latest --jq '.body')
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "body<<$EOF" >> "$GITHUB_OUTPUT"
+          echo "$RELEASE_BODY" >> "$GITHUB_OUTPUT"
+          echo "$EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Compare versions
+        id: compare
+        run: |
+          if [ "${{ steps.current.outputs.version }}" = "${{ steps.upstream.outputs.version }}" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Already up to date"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+
+            CURRENT="${{ steps.current.outputs.version }}"
+            LATEST="${{ steps.upstream.outputs.version }}"
+            CURRENT_MINOR="${CURRENT%.*}"
+            LATEST_MINOR="${LATEST%.*}"
+
+            if [ "$CURRENT_MINOR" = "$LATEST_MINOR" ]; then
+              echo "bump=patch" >> "$GITHUB_OUTPUT"
+            else
+              echo "bump=minor-or-major" >> "$GITHUB_OUTPUT"
+            fi
+            echo "New version available: $CURRENT -> $LATEST ($(cat "$GITHUB_OUTPUT" | grep bump | cut -d= -f2))"
+          fi
+
+      - name: Check for existing issue
+        if: steps.compare.outputs.changed == 'true'
+        id: existing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EXISTING=$(gh issue list --search "upstream mcp-atlassian ${{ steps.upstream.outputs.version }} in:title" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Issue #$EXISTING already exists"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Test compatibility
+        if: steps.compare.outputs.changed == 'true' && steps.existing.outputs.exists == 'false'
+        id: compat
+        run: |
+          pip install --quiet "mcp-atlassian==${{ steps.upstream.outputs.version }}" playwright requests 2>&1
+
+          RESULT=$(python3 -c "
+          import inspect, sys
+          from importlib.metadata import version as pkg_version
+
+          ver = pkg_version('mcp-atlassian')
+          print(f'Installed: mcp-atlassian {ver}')
+
+          checks = [
+              ('JiraClient.__init__', 'mcp_atlassian.jira.client', 'JiraClient', '__init__', ['self', 'config']),
+              ('ConfluenceClient.__init__', 'mcp_atlassian.confluence.client', 'ConfluenceClient', '__init__', ['self', 'config']),
+              ('UsersMixin._lookup_user_by_permissions', 'mcp_atlassian.jira.users', 'UsersMixin', '_lookup_user_by_permissions', ['self', 'username']),
+              ('FormsApiMixin._make_forms_api_request', 'mcp_atlassian.jira.forms_api', 'FormsApiMixin', '_make_forms_api_request', ['self', 'method', 'endpoint', 'data']),
+          ]
+
+          all_ok = True
+          for label, mod_path, cls_name, method_name, expected in checks:
+              try:
+                  mod = __import__(mod_path, fromlist=[cls_name])
+                  cls = getattr(mod, cls_name)
+                  fn = getattr(cls, method_name)
+                  actual = list(inspect.signature(fn).parameters)
+                  if actual[:len(expected)] == expected:
+                      print(f'  OK  {label}: {actual}')
+                  else:
+                      print(f'  BREAK  {label}: expected prefix {expected}, got {actual}')
+                      all_ok = False
+              except Exception as e:
+                  print(f'  ERROR  {label}: {e}')
+                  all_ok = False
+
+          # Check for new public methods on patched classes
+          for mod_path, cls_name in [
+              ('mcp_atlassian.jira.client', 'JiraClient'),
+              ('mcp_atlassian.confluence.client', 'ConfluenceClient'),
+          ]:
+              try:
+                  mod = __import__(mod_path, fromlist=[cls_name])
+                  cls = getattr(mod, cls_name)
+                  methods = [m for m in dir(cls) if not m.startswith('_') and callable(getattr(cls, m, None))]
+                  print(f'  {cls_name} public methods ({len(methods)}): {methods[:10]}...')
+              except Exception as e:
+                  print(f'  Could not inspect {cls_name}: {e}')
+
+          sys.exit(0 if all_ok else 1)
+          " 2>&1) || true
+
+          echo "$RESULT"
+          if echo "$RESULT" | grep -q "BREAK\|ERROR"; then
+            echo "compatible=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "compatible=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "report<<$EOF" >> "$GITHUB_OUTPUT"
+          echo "$RESULT" >> "$GITHUB_OUTPUT"
+          echo "$EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create issue
+        if: steps.compare.outputs.changed == 'true' && steps.existing.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ steps.compat.outputs.compatible }}" = "true" ]; then
+            COMPAT_LABEL="compatible"
+            COMPAT_ICON="white_check_mark"
+            COMPAT_MSG="All patched function signatures are **compatible**. Safe to bump."
+          else
+            COMPAT_LABEL="breaking"
+            COMPAT_ICON="x"
+            COMPAT_MSG="**Signature changes detected** — patches need updating before bumping."
+          fi
+
+          BUMP_TYPE="${{ steps.compare.outputs.bump }}"
+          if [ "$BUMP_TYPE" = "patch" ]; then
+            PRIORITY="Dependabot should handle this automatically."
+          else
+            PRIORITY="Manual update required — outside \`~=0.21.x\` pin range."
+          fi
+
+          gh issue create \
+            --title "upstream: mcp-atlassian ${{ steps.upstream.outputs.version }}" \
+            --label "upstream,$COMPAT_LABEL" \
+            --body "$(cat <<EOF
+          ## New upstream release: mcp-atlassian ${{ steps.upstream.outputs.version }}
+
+          |  |  |
+          |---|---|
+          | **Current pin** | \`${{ steps.current.outputs.version }}\` |
+          | **New version** | \`${{ steps.upstream.outputs.version }}\` |
+          | **Bump type** | \`$BUMP_TYPE\` |
+          | **Compatible** | :$COMPAT_ICON: |
+
+          $PRIORITY
+
+          ### Compatibility report
+
+          \`\`\`
+          ${{ steps.compat.outputs.report }}
+          \`\`\`
+
+          :$COMPAT_ICON: $COMPAT_MSG
+
+          ### Upstream changelog
+
+          ${{ steps.upstream.outputs.body }}
+
+          [View release](${{ steps.upstream.outputs.url }})
+
+          ### Checklist
+
+          - [ ] Review upstream changelog for relevant changes
+          - [ ] Update version pin in \`pyproject.toml\`
+          - [ ] Update \`assert_upstream_compatibility()\` version prefix if minor changed
+          - [ ] Update monkey-patches if signatures changed
+          - [ ] Test locally
+          - [ ] Update README badge (\`wraps-mcp--atlassian\` version)
+          EOF
+          )"
