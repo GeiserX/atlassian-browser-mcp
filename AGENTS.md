@@ -13,7 +13,7 @@ MCP server wrapping upstream [mcp-atlassian](https://github.com/sooperset/mcp-at
 ## Key Design Decisions
 
 - **Monkey-patching over forking**: We patch upstream client `__init__` methods at import time rather than maintaining a fork. An `assert_upstream_compatibility()` check validates signatures on startup.
-- **Version pinning**: Pinned to `mcp-atlassian~=0.21.0`. Bump carefully — upstream signature changes will break patches.
+- **Version pinning**: Pinned to `mcp-atlassian~=0.21.1`. Bump carefully — upstream signature changes will break patches.
 - **No hardcoded URLs**: `JIRA_URL` and `CONFLUENCE_URL` are required env vars with no defaults.
 - **Configurable SSO detection**: `ATLASSIAN_SSO_MARKERS` env var accepts comma-separated markers. Defaults cover Okta, ADFS, Azure AD, PingOne, Google SAML.
 
