@@ -1,4 +1,4 @@
-# AGENTS.md - atlassian-browser-mcp
+# CLAUDE.md - atlassian-browser-mcp
 
 ## Project Overview
 
