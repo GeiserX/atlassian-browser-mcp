@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "atlassian-browser-mcp"
-version = "1.0.0"
+version = "1.0.1"
 description = "Browser-backed MCP server wrapping upstream mcp-atlassian with Playwright SSO auth"
 readme = "README.md"
 requires-python = ">=3.11"

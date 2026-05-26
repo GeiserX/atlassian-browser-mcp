@@ -435,15 +435,16 @@ class BrowserCookieSession(requests.Session):
         _apply_storage_state_cookies(self, storage_state, self.base_url)
 
     def request(self, method: str, url: str, *args: Any, **kwargs: Any) -> requests.Response:
-        """Make a request, automatically re-authenticating on SSO redirects."""
+        """Make a request, automatically re-authenticating on SSO redirects or 401s."""
         retry_on_auth = kwargs.pop("_retry_on_auth", True)
         response = super().request(method, url, *args, **kwargs)
-        if retry_on_auth and looks_like_sso_response(response):
+        needs_reauth = looks_like_sso_response(response) or response.status_code == 401
+        if retry_on_auth and needs_reauth:
             response.close()
             with _LOGIN_LOCK:
                 self.refresh_cookies()
                 retest = super().request(method, url, *args, **kwargs)
-                if not looks_like_sso_response(retest):
+                if not looks_like_sso_response(retest) and retest.status_code != 401:
                     return retest
                 retest.close()
                 interactive_login(self.service, config=self.browser_config)
