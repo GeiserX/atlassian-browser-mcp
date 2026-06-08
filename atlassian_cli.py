@@ -11,8 +11,8 @@ Auth: reuses the saved Playwright storage state. If cookies are missing or
 expired, run `login` (opens a browser for SSO/MFA) and retry.
 
 Env (required, no defaults — same as the rest of this project):
-  JIRA_URL         e.g. https://jira.example.com
-  CONFLUENCE_URL   e.g. https://confluence.example.com
+  JIRA_URL         e.g. <your-jira-host>
+  CONFLUENCE_URL   e.g. <your-confluence-host>
 
 Examples:
   atlassian-cli login jira
@@ -73,21 +73,28 @@ def _get_json(service: str, path: str, params: dict | None = None) -> Any:
 
 
 # ---- HTML -> Markdown (best-effort, dependency-free) ----------------------
+def _markdownify_fallback(html: str) -> str:
+    """Crude tag-stripping fallback when the markdownify lib is unavailable."""
+    import re
+    from html import unescape
+
+    text = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", html, flags=re.S)
+    text = re.sub(r"<br\s*/?>", "\n", text)
+    text = re.sub(r"</p>", "\n\n", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    return unescape(text).strip()
+
+
 def _html_to_markdown(html: str) -> str:
     try:
         from markdownify import markdownify as md  # type: ignore
-
+    except ImportError:
+        return _markdownify_fallback(html)
+    try:
         return md(html, heading_style="ATX")
-    except Exception:
-        import re
-
-        text = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", html, flags=re.S)
-        text = re.sub(r"<br\s*/?>", "\n", text)
-        text = re.sub(r"</p>", "\n\n", text)
-        text = re.sub(r"<[^>]+>", "", text)
-        from html import unescape
-
-        return unescape(text).strip()
+    except (ValueError, TypeError) as exc:
+        _eprint(f"(markdownify failed: {exc}; using plain tag-strip fallback)")
+        return _markdownify_fallback(html)
 
 
 # ---- commands -------------------------------------------------------------

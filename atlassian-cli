@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Launcher for the Atlassian CLI (browser-cookie auth).
 #
-# Strips the AgentTap-injected CA env vars (NODE_EXTRA_CA_CERTS / SSL_CERT_FILE
-# / CODEX_CA_CERTIFICATE) that point at a nonexistent bundle and break TLS,
-# then runs the CLI in the project venv. Same pattern as the Teams CLI wrapper.
+# Strips environment-injected CA env vars (NODE_EXTRA_CA_CERTS / SSL_CERT_FILE
+# / CODEX_CA_CERTIFICATE) that some sandboxes point at a nonexistent bundle,
+# which breaks TLS, then runs the CLI in the project venv.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

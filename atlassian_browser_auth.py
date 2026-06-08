@@ -321,9 +321,13 @@ def _seed_profile_if_needed(cfg: BrowserAuthConfig) -> None:
     dest = cfg.profile_dir
     if (dest / _SEED_SENTINEL).exists():
         return
-    # A live login may already exist (older code, or a prior interactive login
-    # with no seed). Don't clobber it.
-    if (dest / "Default" / "Cookies").exists():
+    # Don't clobber a real pre-existing profile (older code, or a prior login
+    # with no seed). A genuine profile has multiple core files; require Cookies
+    # AND Preferences so a lone Cookies file — the signature of a seed that was
+    # interrupted after the Cookies move but before the sentinel — is treated as
+    # a half-copy and retried/overwritten rather than locked in.
+    default = dest / "Default"
+    if (default / "Cookies").exists() and (default / "Preferences").exists():
         return
 
     print(
@@ -417,7 +421,6 @@ def interactive_login(
 ) -> dict[str, Any]:
     """Open a browser window for interactive SSO/MFA login and save cookies."""
     cfg = config or BrowserAuthConfig.from_env(service)
-    _seed_profile_if_needed(cfg)
     cfg.profile_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     cfg.profile_dir.chmod(0o700)
     cfg.storage_state.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -426,6 +429,10 @@ def interactive_login(
     target_url = url or cfg.login_target(service)
 
     with _LOGIN_LOCK:
+        # Seed under the lock: two concurrent logins share cfg.profile_dir and
+        # the fixed .seed-tmp staging path, so one could delete/partially move
+        # the other's seed and corrupt the profile. Serializing here prevents it.
+        _seed_profile_if_needed(cfg)
         print(
             f"[atlassian-browser-auth] Opening browser for {service} login at {target_url}",
             file=sys.stderr,
@@ -696,9 +703,9 @@ class BrowserCookieSession(requests.Session):
                 # Re-auth interactively, REUSING the existing browser profile.
                 # We deliberately do NOT delete profile_dir here: the persistent
                 # Chrome profile holds the user's long-lived SSO/MFA session (and,
-                # when seeded, their Bitwarden login), so wiping it on a transient
-                # 401 is what caused sessions to be silently lost. Only the
-                # short-lived storage-state cookie cache is refreshed below.
+                # when seeded, their password manager extension login), so wiping
+                # it on a transient 401 is what caused sessions to be silently
+                # lost. Only the short-lived storage-state cache is refreshed below.
                 if self.browser_config.storage_state.exists():
                     self.browser_config.storage_state.unlink()
                 interactive_login(self.service, config=self.browser_config)
