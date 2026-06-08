@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import sys
 import threading
 import time
@@ -91,10 +92,18 @@ class BrowserAuthConfig:
     jira_login_url: str
     confluence_login_url: str
     user_agent: str
+    seed_profile_dir: Path | None
 
     @classmethod
-    def from_env(cls) -> "BrowserAuthConfig":
-        """Build configuration from environment variables."""
+    def from_env(cls, service: "ServiceName | None" = None) -> "BrowserAuthConfig":
+        """Build configuration from environment variables.
+
+        When ``service`` is given, the storage-state cookie cache is namespaced
+        per service (Jira vs Confluence) so their cookies do not overwrite each
+        other — they share one browser profile (one seeded SSO session) but keep
+        separate cookie jars. Passing no service preserves the legacy single
+        state file for backward compatibility.
+        """
         jira_url = os.environ.get("JIRA_URL", "").rstrip("/")
         confluence_url = os.environ.get("CONFLUENCE_URL", "").rstrip("/")
         if not jira_url:
@@ -118,12 +127,7 @@ class BrowserAuthConfig:
                     str(base_dir / ".atlassian-browser-profile"),
                 )
             ).expanduser(),
-            storage_state=Path(
-                os.environ.get(
-                    "ATLASSIAN_STORAGE_STATE",
-                    str(base_dir / ".atlassian-browser-state.json"),
-                )
-            ).expanduser(),
+            storage_state=cls._resolve_storage_state(base_dir, service),
             channel=os.environ.get("ATLASSIAN_BROWSER_CHANNEL", "chromium"),
             login_timeout_seconds=int(
                 os.environ.get("ATLASSIAN_LOGIN_TIMEOUT_SECONDS", "300")
@@ -142,7 +146,80 @@ class BrowserAuthConfig:
                     "Chrome/136.0.0.0 Safari/537.36"
                 ),
             ),
+            seed_profile_dir=cls._resolve_seed_profile_dir(),
         )
+
+    @staticmethod
+    def _resolve_seed_profile_dir() -> Path | None:
+        """Resolve the real Chrome profile to seed the automation profile from.
+
+        Chrome 136+ refuses to let automation drive the live default
+        user-data-dir in place, so we cannot point Playwright straight at it.
+        Instead we copy a real profile ONCE into the dedicated automation dir,
+        which carries the user's saved passwords, installed extensions (e.g. a
+        password manager) and any existing corporate SSO cookies — so the first
+        login is one-click or skipped entirely. Opt in by setting
+        ATLASSIAN_SEED_FROM_CHROME_PROFILE to a profile name (e.g. "Default",
+        "Profile 1") or an absolute path.
+        """
+        raw = os.environ.get("ATLASSIAN_SEED_FROM_CHROME_PROFILE")
+        if not raw:
+            return None
+        candidate = Path(raw).expanduser()
+        if candidate.is_absolute():
+            return candidate if candidate.is_dir() else None
+        # Treat as a profile NAME under the Chrome user-data dir. Reject path
+        # separators / traversal so an env typo can't point us outside it.
+        if raw in {".", ".."} or "/" in raw or "\\" in raw or os.sep in raw:
+            return None
+        chrome_root = Path(
+            os.environ.get(
+                "ATLASSIAN_CHROME_USER_DATA_DIR",
+                str(Path.home() / "Library/Application Support/Google/Chrome"),
+            )
+        ).expanduser().resolve()
+        candidate = (chrome_root / raw).resolve()
+        if chrome_root not in candidate.parents:
+            return None
+        return candidate if candidate.is_dir() else None
+
+    @staticmethod
+    def _resolve_storage_state(base_dir: Path, service: "ServiceName | None") -> Path:
+        """Resolve the cookie-jar path, per service, with legacy adoption.
+
+        - Explicit ATLASSIAN_STORAGE_STATE always wins; when a service is given
+          we still namespace it (insert ``-{service}`` before the suffix) so the
+          two services never share one jar and overwrite each other's cookies.
+        - Otherwise default to ``.atlassian-browser-state-{service}.json`` (or
+          the legacy single name when no service is given).
+        - One-time migration: if the per-service file does not exist yet but the
+          legacy ``.atlassian-browser-state.json`` does, adopt it (copy) so an
+          already-authenticated user is NOT forced into a surprise re-login on
+          upgrade. Cookies are per-profile, so reusing the legacy jar is sound.
+        """
+        override = os.environ.get("ATLASSIAN_STORAGE_STATE")
+        if override:
+            p = Path(override).expanduser()
+            if service:
+                p = p.with_name(f"{p.stem}-{service}{p.suffix}")
+            return p
+        if not service:
+            return (base_dir / ".atlassian-browser-state.json").expanduser()
+        path = (base_dir / f".atlassian-browser-state-{service}.json").expanduser()
+        legacy = base_dir / ".atlassian-browser-state.json"
+        if not path.exists() and legacy.exists():
+            try:
+                shutil.copy2(legacy, path)
+                path.chmod(0o600)
+                print(
+                    f"[atlassian-browser-auth] Adopted legacy session for {service} "
+                    "(no re-login needed).",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            except OSError:
+                pass
+        return path
 
     def service_base(self, service: ServiceName) -> str:
         """Return the base URL for the given service."""
@@ -198,13 +275,149 @@ def _best_effort_prefill(page, username: str | None) -> None:
         )
 
 
+# Profile subpaths that must NOT be copied when seeding: caches (huge, useless)
+# and the singleton lock files Chrome uses to enforce one process per profile —
+# copying those would make the cloned profile think another Chrome owns it.
+_SEED_SKIP = {
+    "Cache",
+    "Code Cache",
+    "GPUCache",
+    "GraphiteDawnCache",
+    "DawnCache",
+    "Service Worker",
+    "Singleton Lock",
+    "SingletonLock",
+    "SingletonCookie",
+    "SingletonSocket",
+    "lockfile",
+}
+
+
+# Sentinel written only after a complete, verified seed. We guard on this
+# (not on the existence of "Default/", which Playwright itself creates on first
+# launch) so a partial/failed copy is never mistaken for a finished seed.
+_SEED_SENTINEL = ".seeded"
+
+
+def _seed_profile_if_needed(cfg: BrowserAuthConfig) -> None:
+    """One-time copy of a real Chrome profile into the automation profile dir.
+
+    Runs only when ATLASSIAN_SEED_FROM_CHROME_PROFILE resolved to an existing
+    profile AND this automation profile has not been successfully seeded yet
+    (no sentinel). The seed carries the user's cookies, saved logins and
+    existing SSO session so the first login is one-click or skipped. Caches and
+    singleton locks are skipped so the clone is small and not seen as owned by
+    the live Chrome.
+
+    Seeding is atomic-ish and verified: we copy into a temp dir, confirm the
+    load-bearing "Cookies" DB landed, then move it into place and write the
+    sentinel. A failed/partial copy logs and is discarded, leaving the slot
+    free to retry next run (it does NOT lock in a broken profile). To re-seed,
+    delete the automation profile dir.
+    """
+    seed = cfg.seed_profile_dir
+    if not seed or not seed.exists():
+        return
+    dest = cfg.profile_dir
+    if (dest / _SEED_SENTINEL).exists():
+        return
+    # A live login may already exist (older code, or a prior interactive login
+    # with no seed). Don't clobber it.
+    if (dest / "Default" / "Cookies").exists():
+        return
+
+    print(
+        f"[atlassian-browser-auth] Seeding automation profile from {seed} "
+        "(one-time copy of cookies and saved logins).",
+        file=sys.stderr,
+        flush=True,
+    )
+    staging = dest.parent / f"{dest.name}.seed-tmp"
+    try:
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
+        staging.mkdir(parents=True, mode=0o700)
+        _copy_tree_filtered(seed, staging / "Default")
+        local_state = seed.parent / "Local State"
+        if local_state.exists():
+            shutil.copy2(local_state, staging / "Local State")
+
+        # Verify the most load-bearing file actually copied. Without Cookies the
+        # seed is useless (it would silently fall through to a manual login), so
+        # treat a missing/empty Cookies DB as a failed seed.
+        cookies = staging / "Default" / "Cookies"
+        if not cookies.exists() or cookies.stat().st_size == 0:
+            raise RuntimeError(
+                "Cookies DB missing/empty after copy (is Chrome running? "
+                "quit it and retry)"
+            )
+
+        dest.mkdir(parents=True, exist_ok=True, mode=0o700)
+        for item in staging.iterdir():
+            target = dest / item.name
+            if target.exists():
+                shutil.rmtree(target, ignore_errors=True) if target.is_dir() else target.unlink()
+            shutil.move(str(item), str(target))
+        (dest / _SEED_SENTINEL).touch(mode=0o600)
+        _chmod_tree_dirs(dest, 0o700)
+        print(
+            "[atlassian-browser-auth] Seed complete.",
+            file=sys.stderr,
+            flush=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"[atlassian-browser-auth] Profile seeding failed ({exc}); "
+            "falling back to a blank profile (will retry on next login).",
+            file=sys.stderr,
+            flush=True,
+        )
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+def _chmod_tree_dirs(root: Path, mode: int) -> None:
+    """Restrict every directory under root to ``mode`` (defensive: keep 0o700)."""
+    try:
+        root.chmod(mode)
+        for d in root.rglob("*"):
+            if d.is_dir() and not d.is_symlink():
+                try:
+                    d.chmod(mode)
+                except OSError:
+                    continue
+    except OSError:
+        pass
+
+
+def _copy_tree_filtered(src: Path, dst: Path) -> None:
+    """Copy a Chrome profile dir, skipping cache and singleton-lock entries."""
+    dst.mkdir(parents=True, exist_ok=True, mode=0o700)
+    for entry in src.iterdir():
+        if entry.name in _SEED_SKIP:
+            continue
+        target = dst / entry.name
+        try:
+            if entry.is_dir():
+                shutil.copytree(
+                    entry, target, dirs_exist_ok=True, symlinks=True,
+                    ignore=shutil.ignore_patterns(*_SEED_SKIP),
+                )
+            else:
+                shutil.copy2(entry, target, follow_symlinks=False)
+        except (OSError, shutil.Error):
+            # Locked/transient files (e.g. an open LevelDB) are non-fatal.
+            continue
+
+
 def interactive_login(
     service: ServiceName = "jira",
     url: str | None = None,
     config: BrowserAuthConfig | None = None,
 ) -> dict[str, Any]:
     """Open a browser window for interactive SSO/MFA login and save cookies."""
-    cfg = config or BrowserAuthConfig.from_env()
+    cfg = config or BrowserAuthConfig.from_env(service)
+    _seed_profile_if_needed(cfg)
     cfg.profile_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     cfg.profile_dir.chmod(0o700)
     cfg.storage_state.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -428,7 +641,7 @@ class BrowserCookieSession(requests.Session):
         super().__init__()
         self.service = service
         self.base_url = base_url.rstrip("/")
-        self.browser_config = config or BrowserAuthConfig.from_env()
+        self.browser_config = config or BrowserAuthConfig.from_env(service)
         self.trust_env = False
         self.headers.update({
             "User-Agent": self.browser_config.user_agent,
@@ -480,13 +693,14 @@ class BrowserCookieSession(requests.Session):
                 if not looks_like_sso_response(retest) and retest.status_code != 401:
                     return retest
                 retest.close()
-                # Delete stale storage state and browser profile so interactive_login
-                # forces a full SSO flow instead of reusing cached browser cookies.
+                # Re-auth interactively, REUSING the existing browser profile.
+                # We deliberately do NOT delete profile_dir here: the persistent
+                # Chrome profile holds the user's long-lived SSO/MFA session (and,
+                # when seeded, their Bitwarden login), so wiping it on a transient
+                # 401 is what caused sessions to be silently lost. Only the
+                # short-lived storage-state cookie cache is refreshed below.
                 if self.browser_config.storage_state.exists():
                     self.browser_config.storage_state.unlink()
-                import shutil
-                if self.browser_config.profile_dir.exists():
-                    shutil.rmtree(self.browser_config.profile_dir, ignore_errors=True)
                 interactive_login(self.service, config=self.browser_config)
                 self.refresh_cookies()
             return self.request(

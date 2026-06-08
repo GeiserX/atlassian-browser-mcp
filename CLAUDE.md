@@ -6,9 +6,39 @@ MCP server wrapping upstream [mcp-atlassian](https://github.com/sooperset/mcp-at
 
 ## Architecture
 
-- `atlassian_browser_mcp_full.py` — Entrypoint. Monkey-patches upstream `JiraClient` and `ConfluenceClient` constructors to inject browser-backed sessions. Registers `atlassian_login` tool. Runs the MCP server.
-- `atlassian_browser_auth.py` — Shared auth module: `BrowserCookieSession` (requests.Session subclass), `interactive_login()`, SSO redirect detection.
-- `run-atlassian-browser-mcp.sh` — Launcher: creates venv via `uv`, installs deps, runs upstream compatibility check, starts server.
+- `atlassian_browser_mcp_full.py` — MCP entrypoint. Monkey-patches upstream `JiraClient` and `ConfluenceClient` constructors to inject browser-backed sessions. Registers `atlassian_login` tool. Runs the MCP server.
+- `atlassian_browser_auth.py` — Shared auth core: `BrowserCookieSession` (requests.Session subclass), `interactive_login()`, profile seeding, SSO redirect detection. Both the MCP server and the CLI use this.
+- `atlassian_cli.py` + `atlassian-cli` — Command-line front-end over the same auth core (Jira/Confluence get/search, login). Preferred for agents and scripting; no MCP transport involved. See `AGENT_USAGE.md`.
+- `run-atlassian-browser-mcp.sh` — MCP launcher: creates venv via `uv`, installs deps, runs upstream compatibility check, starts server.
+
+## ⚠️ Authentication: ALWAYS reuse the browser profile (do not re-enter user/pw)
+
+Re-entering corporate username/password + MFA on every run is a real pain and
+must be avoided. The whole point of this tool is a **persistent, reusable
+session**. Two rules make that reliable:
+
+1. **Seed from the user's real Chrome profile.** On first login, set
+   `ATLASSIAN_SEED_FROM_CHROME_PROFILE=Default` (or another profile name / an
+   absolute path). This copies the real Chrome profile **once** — cookies, saved
+   logins, and any password-manager extension — into the dedicated automation
+   profile (`.atlassian-browser-profile/`). Because the user's live corporate
+   SSO cookies come along, the first login typically completes **hands-free**,
+   no password and no MFA prompt. Chrome 136+ refuses to drive the live profile
+   in place, so seeding a copy is the supported way to reuse it.
+2. **NEVER delete the browser profile on an auth failure.** A previous version
+   ran `shutil.rmtree(profile_dir)` on a transient 401, which silently destroyed
+   the long-lived SSO session and forced a full manual re-login every time.
+   That self-wipe has been removed and must not come back. On re-auth, only the
+   short-lived per-service cookie cache (`.atlassian-browser-state-<svc>.json`)
+   is refreshed; the profile is preserved so re-login stays instant.
+
+Jira and Confluence keep **separate cookie jars** (`*-state-jira.json`,
+`*-state-confluence.json`) but **share one browser profile**, so a single seeded
+SSO session covers both services. All `.atlassian-browser-*` artifacts hold live
+credentials and are git-ignored — never commit them.
+
+Operational how-to (commands, env vars) lives in [`AGENT_USAGE.md`](AGENT_USAGE.md);
+this section is the rationale and the two hard rules.
 
 ## Key Design Decisions
 

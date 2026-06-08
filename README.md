@@ -25,10 +25,44 @@ The server monkey-patches `JiraClient` and `ConfluenceClient` constructors in `m
 
 | File | Purpose |
 |------|---------|
-| `atlassian_browser_mcp_full.py` | Entrypoint. Patches upstream clients, registers `atlassian_login` tool, runs the MCP server |
-| `atlassian_browser_auth.py` | Shared auth: `BrowserCookieSession`, `interactive_login()`, SSO detection |
-| `run-atlassian-browser-mcp.sh` | Launcher: creates venv, installs deps via `uv`, runs compatibility check, starts server |
+| `atlassian_browser_mcp_full.py` | MCP entrypoint. Patches upstream clients, registers `atlassian_login` tool, runs the MCP server |
+| `atlassian_browser_auth.py` | Shared auth core: `BrowserCookieSession`, `interactive_login()`, profile seeding, SSO detection |
+| `atlassian_cli.py` + `atlassian-cli` | Command-line front-end over the same auth core (Jira/Confluence get/search, login). Great for scripts and agents — see [`AGENT_USAGE.md`](AGENT_USAGE.md) |
+| `run-atlassian-browser-mcp.sh` | MCP launcher: creates venv, installs deps via `uv`, runs compatibility check, starts server |
 | `pyproject.toml` | Dependency pins |
+
+## Reusing your real browser session (recommended)
+
+To avoid re-entering your username/password + MFA on every login, **seed the
+automation profile once from your real Chrome profile**. The copy carries your
+existing SSO cookies (and saved logins / password-manager extension), so the
+first login is typically one-click or fully hands-free:
+
+```bash
+ATLASSIAN_SEED_FROM_CHROME_PROFILE=Default ./atlassian-cli login jira
+```
+
+Chrome 136+ blocks automation from driving the live profile in place, so a
+one-time copy into the dedicated profile dir is the supported way to inherit the
+session. The profile is **never auto-deleted** on an auth failure, so the
+long-lived session persists and re-login stays instant. Jira and Confluence keep
+separate cookie jars but share one seeded profile.
+
+## CLI usage
+
+```bash
+export JIRA_URL="https://jira.example.com"
+export CONFLUENCE_URL="https://confluence.example.com"
+
+./atlassian-cli login jira                       # one-time per service
+./atlassian-cli jira get PROJ-123 --comments
+./atlassian-cli jira search 'project = PROJ AND status = "In Progress"'
+./atlassian-cli confluence get 123456789 --markdown -o page.md
+./atlassian-cli confluence search 'release process' --space DEV
+```
+
+The CLI defaults to the real `chrome` channel (its seeded cookies are encrypted
+with a keychain key only Chrome can read); the MCP server defaults to `chromium`.
 
 ## Usage
 
@@ -64,8 +98,10 @@ On first use (or when cookies expire), a Chromium window opens for SSO login. Af
 | `JIRA_URL` | _(required)_ | Jira base URL (e.g. `https://jira.example.com`) |
 | `CONFLUENCE_URL` | _(required)_ | Confluence base URL (e.g. `https://confluence.example.com`) |
 | `ATLASSIAN_BROWSER_AUTH_ENABLED` | `true` | Enable browser auth (set `false` to fall back to token auth) |
-| `ATLASSIAN_BROWSER_PROFILE_DIR` | `./.atlassian-browser-profile` | Persistent Chromium profile directory |
-| `ATLASSIAN_STORAGE_STATE` | `./.atlassian-browser-state.json` | Playwright storage-state file |
+| `ATLASSIAN_BROWSER_PROFILE_DIR` | `./.atlassian-browser-profile` | Persistent browser profile directory (shared across services) |
+| `ATLASSIAN_SEED_FROM_CHROME_PROFILE` | _(none)_ | Seed the profile once from a real Chrome profile (name like `Default`/`Profile 1`, or an absolute path). Brings your cookies, saved logins, and existing SSO session |
+| `ATLASSIAN_CHROME_USER_DATA_DIR` | _(macOS Chrome dir)_ | Where Chrome profiles live, for resolving the seed profile name |
+| `ATLASSIAN_STORAGE_STATE` | `./.atlassian-browser-state-{service}.json` | Cookie-jar file. Per-service by default; an explicit value is still namespaced per service |
 | `ATLASSIAN_LOGIN_TIMEOUT_SECONDS` | `300` | Seconds to wait for manual login |
 | `ATLASSIAN_USERNAME` | _(none)_ | Optional: prefill username on SSO page |
 | `ATLASSIAN_SSO_MARKERS` | _(auto)_ | Comma-separated URL/text markers for SSO redirect detection. Defaults cover Okta, ADFS, Azure AD, PingOne, Google SAML |

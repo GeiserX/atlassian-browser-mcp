@@ -9,7 +9,11 @@ build/
 .eggs/
 .venv-atlassian-browser/
 .atlassian-browser-profile/
-.atlassian-browser-state.json
+# Session cookie jars — live credentials, never commit. Covers the legacy
+# single state file and the per-service files (.atlassian-browser-state-jira.json,
+# .atlassian-browser-state-confluence.json).
+.atlassian-browser-state*.json
+.omc/
 .env
 .mypy_cache/
 .ruff_cache/
