@@ -1,10 +1,36 @@
 # Atlassian access for agents (Jira + Confluence)
 
-**TL;DR for an AI agent:** use the CLI at `./atlassian-cli`. It talks to Jira /
-Confluence using a real Chrome browser session (seeded from the user's own
-Chrome profile, so saved passwords / Bitwarden / existing SSO all come along).
+**TL;DR for an AI agent:** use the CLI at `./atlassian-cli`. It reuses an
+existing Jira/Confluence session — first by **auto-harvesting live cookies from
+whatever browser you actually use** (Arc, Chrome, Brave, Edge, …), and only if
+none has a live session does it open a real Chrome window for a one-time SSO.
 Read this file, then run the commands below. Do **not** rebuild or reconfigure
 anything — it already works once `JIRA_URL` / `CONFLUENCE_URL` are set.
+
+## How auth resolves (the order — this is the whole design)
+
+1. **Saved cookie jar** still valid → used immediately, no work.
+2. **Auto-harvest** (`cookie_autoauth.py` → `cookie_harvest.py`): scans every
+   installed Chromium-family browser, decrypts its Jira/Confluence cookies via
+   that browser's macOS Keychain key (the `<Browser> Safe Storage` entry), and
+   probes the REST API with a **bounded** request. The first browser that
+   answers HTTP 200 wins; its cookies are saved as the jar. **No window opens,
+   nothing hangs.** This is why you don't have to be logged into *Chrome*
+   specifically — if your live session is in **Arc**, it's reused from Arc.
+3. **Interactive SSO** — ONLY when no browser has a live session: a visible
+   **real Chrome** window opens at the login page; you complete SSO/MFA once; it
+   closes and saves the jar. That Chrome automation profile then keeps the SSO
+   session, so subsequent refreshes are hands-free.
+
+The MCP **server never opens a window** (it can harvest silently, but on a true
+miss it raises "run `atlassian-cli login`" instead of hanging). Only the CLI,
+run by a human in a terminal, ever shows the interactive SSO window.
+
+**Diagnose first, don't guess:** to see exactly which browsers have cookies and
+whether any session is live, run `python3 cookie_autoauth.py jira` (or
+`confluence`) — it prints a per-browser line like `arc/Default: 7 cookies ->
+HTTP 200`. If it says no browser is live, the session genuinely expired and an
+SSO `login` is required; that is not a tooling bug.
 
 ## Why this exists
 
@@ -66,10 +92,21 @@ commands need **no** browser and **no** seed variable.
 
 ## If a command says it can't authenticate
 
-The session expired (~24h). Just re-run `login` for that service:
+First, the tool already tried to auto-harvest a live session from every browser
+and found none live. Confirm what's actually there:
 
 ```bash
-ATLASSIAN_SEED_FROM_CHROME_PROFILE=Default ./atlassian-cli login jira
+python3 cookie_autoauth.py jira        # per-browser cookie + live-probe report
+```
+
+- If a browser shows `-> HTTP 200`, auth will just work (re-run your command).
+- If all show non-200 (e.g. `HTTP 401`), the session genuinely expired
+  everywhere. Re-establish it by signing in **in your normal browser** (Arc,
+  Chrome, …) — the very next call auto-harvests it. Or do a one-time SSO via the
+  tool's own Chrome:
+
+```bash
+./atlassian-cli login jira        # opens real Chrome for SSO, then saves the jar
 ```
 
 The browser profile is **never** auto-deleted, so re-login is usually instant
@@ -89,9 +126,11 @@ The browser profile is **never** auto-deleted, so re-login is usually instant
 | --- | --- | --- |
 | `JIRA_URL` | (required) | Jira base URL |
 | `CONFLUENCE_URL` | (required) | Confluence base URL |
-| `ATLASSIAN_SEED_FROM_CHROME_PROFILE` | (unset) | Chrome profile name/path to seed from. Set on first `login`. |
+| `ATLASSIAN_COOKIE_HARVEST` | `true` | Master switch for auto-harvest. Set falsy to disable and force the saved-jar / interactive path only. |
+| `ATLASSIAN_COOKIE_SOURCE_BROWSERS` | (all installed) | Comma list of browsers to harvest from, in order, e.g. `arc,chrome`. Acts as an allow-list. Known: arc, brave, vivaldi, edge, opera, chrome, chromium, dia. |
+| `ATLASSIAN_SEED_FROM_CHROME_PROFILE` | (unset) | Chrome profile name/path to seed the interactive-login profile from. Optional now that harvest covers reuse. |
 | `ATLASSIAN_CHROME_USER_DATA_DIR` | `~/Library/Application Support/Google/Chrome` | Where Chrome profiles live (macOS default) |
-| `ATLASSIAN_BROWSER_CHANNEL` | `chrome` | Playwright browser channel |
+| `ATLASSIAN_BROWSER_CHANNEL` | `chrome` | Playwright browser channel for interactive login (real Chrome, not bundled Chromium) |
 | `ATLASSIAN_LOGIN_TIMEOUT_SECONDS` | `300` | How long the login window waits for SSO |
 
 ## Notes / gotchas

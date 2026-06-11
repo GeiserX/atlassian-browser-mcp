@@ -147,7 +147,13 @@ class BrowserAuthConfig:
                 )
             ).expanduser(),
             storage_state=cls._resolve_storage_state(base_dir, service),
-            channel=os.environ.get("ATLASSIAN_BROWSER_CHANNEL", "chromium"),
+            # Default to the user's REAL Google Chrome, not Playwright's bundled
+            # Chromium. This tool seeds from / reuses the real Chrome profile and
+            # its corporate SSO session, so it must drive the same browser. The
+            # old "chromium" default sent the server path (which doesn't go
+            # through the CLI wrapper that sets this) down a "missing Chromium
+            # binary" dead end and broke profile/cookie reuse.
+            channel=os.environ.get("ATLASSIAN_BROWSER_CHANNEL", "chrome"),
             login_timeout_seconds=int(
                 os.environ.get("ATLASSIAN_LOGIN_TIMEOUT_SECONDS", "300")
             ),
@@ -704,8 +710,24 @@ class BrowserCookieSession(requests.Session):
             )
 
     def refresh_cookies(self) -> None:
-        """Reload cookies from storage state, triggering login if needed."""
+        """Reload cookies from storage state, harvesting or logging in if needed.
+
+        Order of preference:
+          1. A valid saved storage-state jar (fast path, no work).
+          2. Auto-harvest: reuse a LIVE session from any installed browser
+             (Arc/Chrome/Brave/...). This opens no window and is bounded, so it
+             runs in BOTH interactive and server (allow_interactive=False) modes
+             — letting the server self-heal silently when a browser has a live
+             session, instead of failing fast on the first missing jar.
+          3. Interactive SSO in a visible browser — ONLY when allow_interactive
+             and harvest found nothing. The server never reaches this branch.
+        """
         if not self.browser_config.storage_state.exists():
+            # Try harvesting a live session from any browser first (no UI, bounded).
+            if self._try_auto_harvest():
+                storage_state = _load_storage_state(self.browser_config.storage_state)
+                _apply_storage_state_cookies(self, storage_state, self.base_url)
+                return
             # Non-interactive (server) mode: never open a browser — fail fast
             # with a clear instruction instead of blocking the caller.
             if not self.allow_interactive:
@@ -724,6 +746,50 @@ class BrowserCookieSession(requests.Session):
         storage_state = _load_storage_state(self.browser_config.storage_state)
         _apply_storage_state_cookies(self, storage_state, self.base_url)
 
+    def _try_auto_harvest(self) -> bool:
+        """Reuse a live session from any installed browser; write the jar if found.
+
+        Returns True iff a browser yielded an authenticated (HTTP 200) session
+        and its cookies were written to this service's storage-state path. Opens
+        no browser window and is fully bounded, so it is safe in server mode.
+        Controlled by ATLASSIAN_COOKIE_HARVEST (default on); set falsy to skip.
+        """
+        if not _env_truthy("ATLASSIAN_COOKIE_HARVEST", True):
+            return False
+        try:
+            # Imported lazily so a harvest-disabled or non-macOS environment never
+            # pays the import cost (and a missing optional dep can't break auth).
+            from cookie_autoauth import auto_harvest
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("auto-harvest unavailable: %s", exc)
+            return False
+        try:
+            res = auto_harvest(
+                self.service,
+                self.base_url,
+                storage_state_path=self.browser_config.storage_state,
+                user_agent=self.browser_config.user_agent,
+            )
+        except Exception as exc:  # noqa: BLE001 - harvest must never break auth
+            logger.debug("auto-harvest error for %s: %s", self.service, exc)
+            return False
+        if res.authenticated:
+            print(
+                f"[atlassian-browser-auth] Reused live {self.service} session from "
+                f"{res.browser}/{res.profile} ({res.cookie_count} cookies) — no login needed.",
+                file=sys.stderr,
+                flush=True,
+            )
+            return True
+        if res.attempts:
+            print(
+                f"[atlassian-browser-auth] No live {self.service} session in any browser "
+                f"({'; '.join(res.attempts)}).",
+                file=sys.stderr,
+                flush=True,
+            )
+        return False
+
     def request(self, method: str, url: str, *args: Any, **kwargs: Any) -> requests.Response:
         """Make a request, automatically re-authenticating on SSO redirects or 401s."""
         retry_on_auth = kwargs.pop("_retry_on_auth", True)
@@ -739,6 +805,18 @@ class BrowserCookieSession(requests.Session):
                 with _LOGIN_LOCK:
                     self.refresh_cookies()  # reload from disk; raises if absent
                     retest = super().request(method, url, *args, **kwargs)
+                    if looks_like_sso_response(retest) or retest.status_code == 401:
+                        # Disk jar is also stale. Try harvesting a fresh live
+                        # session from another browser (bounded, no UI) before
+                        # giving up — this is how the server self-heals when the
+                        # user re-authed in their normal browser.
+                        retest.close()
+                        if self._try_auto_harvest():
+                            storage_state = _load_storage_state(
+                                self.browser_config.storage_state
+                            )
+                            _apply_storage_state_cookies(self, storage_state, self.base_url)
+                            retest = super().request(method, url, *args, **kwargs)
                 if not looks_like_sso_response(retest) and retest.status_code != 401:
                     return retest
                 retest.close()
@@ -749,6 +827,15 @@ class BrowserCookieSession(requests.Session):
                 if not looks_like_sso_response(retest) and retest.status_code != 401:
                     return retest
                 retest.close()
+                # Disk jar stale too — try harvesting a live session from another
+                # browser before opening a visible login window.
+                if self._try_auto_harvest():
+                    storage_state = _load_storage_state(self.browser_config.storage_state)
+                    _apply_storage_state_cookies(self, storage_state, self.base_url)
+                    retest2 = super().request(method, url, *args, **kwargs)
+                    if not looks_like_sso_response(retest2) and retest2.status_code != 401:
+                        return retest2
+                    retest2.close()
                 # Re-auth interactively, REUSING the existing browser profile.
                 # We deliberately do NOT delete profile_dir here: the persistent
                 # Chrome profile holds the user's long-lived SSO/MFA session (and,

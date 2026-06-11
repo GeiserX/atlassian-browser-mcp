@@ -51,15 +51,12 @@ check() {
   host="${url#*://}"; host="${host%%/*}"
 
   local states; states="$(candidate_states "$svc")"
-  if [[ -z "$states" ]]; then
-    echo "RED  $svc  (no state file in $DIR) — run: atlassian-cli login $svc"
-    return 1
-  fi
 
   local tried=0 had_cookies=0 last_code=""
   local state cookie code
   while IFS= read -r state; do
     [[ -f "$state" ]] || continue
+    [[ -z "$state" ]] && continue
     tried=$((tried+1))
     # Build a Cookie header from cookies whose domain matches this host.
     # No secret values are printed; only used in the request.
@@ -88,8 +85,23 @@ PY
     fi
   done <<< "$states"
 
+  # Saved jars are missing or stale. Before declaring RED, try harvesting a LIVE
+  # session from any installed browser (bounded, opens no window). This is what
+  # makes preflight self-healing: if the user's normal browser (Arc/Chrome/...)
+  # has a live session, it is reused with no interactive login. Opt out with
+  # ATLASSIAN_COOKIE_HARVEST=0.
+  if [[ "${ATLASSIAN_COOKIE_HARVEST:-1}" != "0" && -f "$DIR/cookie_autoauth.py" ]]; then
+    local py harvested
+    py="$DIR/.venv-atlassian-browser/bin/python3"; [[ -x "$py" ]] || py="python3"
+    harvested="$("$py" "$DIR/cookie_autoauth.py" "$svc" 2>/dev/null | grep -E '\-> HTTP 200' | head -1)"
+    if [[ -n "$harvested" ]]; then
+      echo "GREEN $svc  (harvested live session from ${harvested%%:*})"
+      return 0
+    fi
+  fi
+
   if [[ "$had_cookies" == "0" ]]; then
-    echo "RED  $svc  (no $host cookies in $tried state file(s)) — run: atlassian-cli login $svc"
+    echo "RED  $svc  (no $host cookies; no live browser session) — run: atlassian-cli login $svc"
     return 1
   fi
   # had cookies but none authenticated — classify by the last response code
