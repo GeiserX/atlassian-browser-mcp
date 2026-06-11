@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "atlassian-browser-mcp"
-version = "1.1.1"
+version = "1.2.0"
 description = "Browser-backed MCP server wrapping upstream mcp-atlassian with Playwright SSO auth"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -22,6 +22,7 @@ dependencies = [
     "mcp-atlassian>=0.21.1,<1.0.0",
     "playwright>=1.58.0",
     "requests>=2.33.1",
+    "cryptography>=42.0.0",
 ]
 
 [project.urls]
@@ -33,4 +34,9 @@ Issues = "https://github.com/GeiserX/atlassian-browser-mcp/issues"
 atlassian-browser-mcp = "atlassian_browser_mcp_full:main"
 
 [tool.setuptools]
-py-modules = ["atlassian_browser_auth", "atlassian_browser_mcp_full"]
+py-modules = [
+    "atlassian_browser_auth",
+    "atlassian_browser_mcp_full",
+    "cookie_harvest",
+    "cookie_autoauth",
+]
