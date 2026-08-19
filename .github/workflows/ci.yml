@@ -24,6 +24,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          # This job installs and runs repository code, including from
+          # fork PRs. Nothing here pushes, so the token has no reason to
+          # stay in .git/config where that code could reach it.
+          persist-credentials: false
 
       - uses: actions/setup-python@v7
         with:
