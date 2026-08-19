@@ -22,6 +22,12 @@ jobs:
           echo "version=$PIN" >> "$GITHUB_OUTPUT"
           echo "Current pin: $PIN"
 
+          # Read the real constraint instead of quoting one in the issue text,
+          # which went stale two bumps ago.
+          CONSTRAINT=$(grep -oE '"mcp-atlassian[^"]*"' pyproject.toml | head -1 | tr -d '"' | sed 's/^mcp-atlassian//')
+          echo "constraint=$CONSTRAINT" >> "$GITHUB_OUTPUT"
+          echo "Current constraint: $CONSTRAINT"
+
       - name: Get latest upstream release
         id: upstream
         env:
@@ -157,9 +163,9 @@ jobs:
 
           BUMP_TYPE="${{ steps.compare.outputs.bump }}"
           if [ "$BUMP_TYPE" = "minor-or-patch" ]; then
-            PRIORITY="Within \`>=0.21.1,<1.0.0\` range — Dependabot should handle this automatically."
+            PRIORITY="Already satisfies our \`${{ steps.current.outputs.constraint }}\` constraint, so **Dependabot will not open a PR for it** — there is nothing for it to bump and no lockfile to update. Raising the floor is a manual PR, and that is what this issue is for."
           else
-            PRIORITY="**Major version change** — outside \`>=0.21.1,<1.0.0\` pin range. Manual update required."
+            PRIORITY="**Major version change** — outside our \`${{ steps.current.outputs.constraint }}\` constraint. Manual update required."
           fi
 
           gh issue create \
@@ -198,6 +204,6 @@ jobs:
           - [ ] Update \`assert_upstream_compatibility()\` version prefix if major changed
           - [ ] Update monkey-patches if signatures changed
           - [ ] Test locally
-          - [ ] Update README badge (\`wraps-mcp--atlassian\` version)
+          - [ ] Update the README badge only if the major changed (it reads \`0.x\`)
           EOF
           )"
