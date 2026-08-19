@@ -84,7 +84,7 @@ def test_live_session_selected_and_jar_written(monkeypatch, tmp_path):
     jar = tmp_path / "state-jira.json"
     res = aa.auto_harvest("jira", "https://jira.example.com", storage_state_path=jar)
 
-    assert res.authenticated is False  # TEMPORARY: positive control, reverted in the next commit
+    assert res.authenticated is True
     assert res.browser == "arc"
     assert res.cookie_count == 1
     assert res.storage_state_path == str(jar)
