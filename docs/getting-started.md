@@ -26,8 +26,15 @@ existing SSO cookies (and saved logins / password-manager extension), so the
 first login is typically one-click or fully hands-free:
 
 ```bash
+# macOS
 ATLASSIAN_SEED_FROM_CHROME_PROFILE=Default ./atlassian-cli login jira
+
+# Linux: Chrome keeps its profiles elsewhere, so name the directory too
+ATLASSIAN_CHROME_USER_DATA_DIR="$HOME/.config/google-chrome" \
+  ATLASSIAN_SEED_FROM_CHROME_PROFILE=Default ./atlassian-cli login jira
 ```
+
+An absolute profile path also works in place of the name.
 
 Chrome 136+ blocks automation from driving the live profile in place, so a
 one-time copy into the dedicated profile dir is the supported way to inherit the
