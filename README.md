@@ -4,77 +4,33 @@
 
 # atlassian-browser-mcp
 
-[![License: GPL-3.0](https://img.shields.io/github/license/GeiserX/atlassian-browser-mcp?style=flat-square)](LICENSE)
+[![CI](https://github.com/GeiserX/atlassian-browser-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/GeiserX/atlassian-browser-mcp/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/GeiserX/atlassian-browser-mcp?style=flat-square)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-3572A5?style=flat-square&logo=python&logoColor=white)](https://python.org)
-[![GitHub stars](https://img.shields.io/github/stars/GeiserX/atlassian-browser-mcp?style=flat-square)](https://github.com/GeiserX/atlassian-browser-mcp/stargazers)
 [![mcp-atlassian](https://img.shields.io/badge/wraps-mcp--atlassian%200.x-blue?style=flat-square)](https://github.com/sooperset/mcp-atlassian)
 [![GeiserX/atlassian-browser-mcp MCP server](https://glama.ai/mcp/servers/GeiserX/atlassian-browser-mcp/badges/score.svg)](https://glama.ai/mcp/servers/GeiserX/atlassian-browser-mcp)
 
-MCP server that wraps the upstream [mcp-atlassian](https://github.com/sooperset/mcp-atlassian) toolset with browser-cookie authentication via Playwright. Designed for Atlassian Server/Data Center instances behind corporate SSO (Okta, SAML, etc.) where API tokens are not available.
+MCP server that wraps the upstream [mcp-atlassian](https://github.com/sooperset/mcp-atlassian) toolset with browser-cookie authentication via Playwright, for Atlassian Server/Data Center instances behind corporate SSO (Okta, SAML, etc.) where API tokens are not available. It runs locally over stdio: you log in once with the bundled CLI, and the server reuses the cookies.
 
-## How it works
+## Features
 
-Authentication and serving are **two separate processes** — this is what keeps the MCP server from hanging:
+- Every mcp-atlassian Jira and Confluence tool, authenticated with your SSO browser session instead of an API token.
+- One login per service with the CLI; the server itself never opens a browser, so it never hangs waiting for one.
+- Seeds the automation profile from your real Chrome profile, so the first login is often one click.
+- On macOS, reuses a live session from an installed Chromium-family browser (Arc, Brave, Edge, Chrome and others) without opening a window.
+- Separate cookie jars for Jira and Confluence.
+- A command-line front-end (`atlassian-cli`) for scripts and agents: get and search issues and pages.
+- Falls back to token auth with `ATLASSIAN_BROWSER_AUTH_ENABLED=false`.
 
-1. **Authenticate with the CLI** (foreground, where a browser can open): `atlassian-cli login <jira|confluence>` runs Playwright, you complete SSO/MFA once, and cookies are saved to a per-service storage-state file.
-2. **The MCP server serves data only.** It reads the saved cookies via a custom `requests.Session` subclass and never opens a browser. On a missing/expired session it fails fast with an `AuthRequiredError` telling you to run the CLI login — it does **not** block waiting for an interactive login.
-
-> ⚠️ Earlier versions launched the login browser from inside the server. Because the server is detached and async, that blocked tool calls for minutes (often forever) and could deadlock Playwright's sync API on the event loop. The CLI/server split (`allow_interactive=False` on server sessions) removes that failure mode entirely.
-
-The server monkey-patches `JiraClient` and `ConfluenceClient` constructors in `mcp-atlassian` to inject the browser-cookie session, giving full parity with the upstream tool surface.
-
-## Files
-
-| File | Purpose |
-|------|---------|
-| `atlassian_browser_mcp_full.py` | MCP entrypoint. Patches upstream clients, registers `atlassian_login` tool, runs the MCP server |
-| `atlassian_browser_auth.py` | Shared auth core: `BrowserCookieSession`, `interactive_login()`, profile seeding, SSO detection |
-| `atlassian_cli.py` + `atlassian-cli` | Command-line front-end over the same auth core (Jira/Confluence get/search, login). Great for scripts and agents — see [`AGENT_USAGE.md`](AGENT_USAGE.md) |
-| `run-atlassian-browser-mcp.sh` | MCP launcher: creates venv, installs deps via `uv`, runs compatibility check, starts server |
-| `pyproject.toml` | Dependency pins |
-
-## Reusing your real browser session (recommended)
-
-To avoid re-entering your username/password + MFA on every login, **seed the
-automation profile once from your real Chrome profile**. The copy carries your
-existing SSO cookies (and saved logins / password-manager extension), so the
-first login is typically one-click or fully hands-free:
+## Quick start
 
 ```bash
-ATLASSIAN_SEED_FROM_CHROME_PROFILE=Default ./atlassian-cli login jira
+git clone https://github.com/GeiserX/atlassian-browser-mcp.git && cd atlassian-browser-mcp
+uv venv --python 3.11 .venv-atlassian-browser && uv pip install --python .venv-atlassian-browser/bin/python -e .
+JIRA_URL=https://jira.example.com CONFLUENCE_URL=https://confluence.example.com ./atlassian-cli login jira   # once per service
 ```
 
-Chrome 136+ blocks automation from driving the live profile in place, so a
-one-time copy into the dedicated profile dir is the supported way to inherit the
-session. The profile is **never auto-deleted** on an auth failure, so the
-long-lived session persists and re-login stays instant. Jira and Confluence keep
-separate cookie jars but share one seeded profile.
-
-## CLI usage
-
-```bash
-export JIRA_URL="https://jira.example.com"
-export CONFLUENCE_URL="https://confluence.example.com"
-
-./atlassian-cli login jira                       # one-time per service
-./atlassian-cli jira get PROJ-123 --comments
-./atlassian-cli jira search 'project = PROJ AND status = "In Progress"'
-./atlassian-cli confluence get 123456789 --markdown -o page.md
-./atlassian-cli confluence search 'release process' --space DEV
-```
-
-The CLI defaults to the real `chrome` channel (its seeded cookies are encrypted
-with a keychain key only Chrome can read); the MCP server defaults to `chromium`.
-
-## Usage
-
-```bash
-./run-atlassian-browser-mcp.sh
-```
-
-### MCP server configuration
-
-Add to your Claude Code, Cursor, or other MCP client configuration:
+Then point your MCP client at the launcher:
 
 ```json
 {
@@ -83,52 +39,23 @@ Add to your Claude Code, Cursor, or other MCP client configuration:
       "command": "/path/to/atlassian-browser-mcp/run-atlassian-browser-mcp.sh",
       "env": {
         "JIRA_URL": "https://jira.example.com",
-        "CONFLUENCE_URL": "https://confluence.example.com",
-        "ATLASSIAN_USERNAME": "your.email@company.com"
+        "CONFLUENCE_URL": "https://confluence.example.com"
       }
     }
   }
 }
 ```
 
-On first use (or when cookies expire), a Chromium window opens for SSO login. After login completes, the browser closes automatically and all MCP tool calls proceed using the saved session.
+Needs Python 3.11+, [uv](https://docs.astral.sh/uv/), Google Chrome and a display for the login. The server only reads the saved cookies; when they expire it returns an `AuthRequiredError` asking you to run the login again. Seeding from Chrome and every setting are in [Getting started](docs/getting-started.md).
 
-### Environment variables
+## Documentation
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `JIRA_URL` | _(required)_ | Jira base URL (e.g. `https://jira.example.com`) |
-| `CONFLUENCE_URL` | _(required)_ | Confluence base URL (e.g. `https://confluence.example.com`) |
-| `ATLASSIAN_BROWSER_AUTH_ENABLED` | `true` | Enable browser auth (set `false` to fall back to token auth) |
-| `ATLASSIAN_BROWSER_PROFILE_DIR` | `./.atlassian-browser-profile` | Persistent browser profile directory (shared across services) |
-| `ATLASSIAN_SEED_FROM_CHROME_PROFILE` | _(none)_ | Seed the profile once from a real Chrome profile (name like `Default`/`Profile 1`, or an absolute path). Brings your cookies, saved logins, and existing SSO session |
-| `ATLASSIAN_CHROME_USER_DATA_DIR` | _(macOS Chrome dir)_ | Where Chrome profiles live, for resolving the seed profile name |
-| `ATLASSIAN_STORAGE_STATE` | `./.atlassian-browser-state-{service}.json` | Cookie-jar file. Per-service by default; an explicit value is still namespaced per service |
-| `ATLASSIAN_LOGIN_TIMEOUT_SECONDS` | `300` | Seconds to wait for manual login |
-| `ATLASSIAN_USERNAME` | _(none)_ | Optional: prefill username on SSO page |
-| `ATLASSIAN_SSO_MARKERS` | _(auto)_ | Comma-separated URL/text markers for SSO redirect detection. Defaults cover Okta, ADFS, Azure AD, PingOne, Google SAML |
-| `ATLASSIAN_BROWSER_CHANNEL` | `chromium` | Browser channel (`chromium`, `chrome`, `msedge`) |
-| `ATLASSIAN_JIRA_LOGIN_URL` | `{JIRA_URL}/secure/Dashboard.jspa` | Override the Jira login entry point URL |
-| `ATLASSIAN_CONFLUENCE_LOGIN_URL` | `{CONFLUENCE_URL}` | Override the Confluence login entry point URL |
-| `ATLASSIAN_BROWSER_USER_AGENT` | _(Chrome 136)_ | Custom User-Agent string for API requests |
-| `TOOLSETS` | `all` | Which upstream toolsets to enable |
+- [Getting started](docs/getting-started.md): requirements, install, the first login, seeding from Chrome, the MCP client config
+- [Configuration](docs/configuration.md): every environment variable and its default
+- [Usage](docs/usage.md): the MCP tools and the CLI commands
+- [How it works](docs/how-it-works.md): why login and serving are separate processes, and the files
+- [Troubleshooting](docs/troubleshooting.md): symptoms, causes, fixes, and what to put in a bug report
 
-## Requirements
+## License
 
-- Python 3.11+
-- [uv](https://docs.astral.sh/uv/) (for dependency management)
-- Chromium (installed automatically by Playwright)
-- A graphical display (macOS, X11, or Wayland) — required for interactive SSO login
-- Network access to your Atlassian instance
-
-## Troubleshooting
-
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| Browser doesn't open | Headless environment (SSH, Docker) | Forward X11 or run initial login on a machine with a display |
-| Login timed out | Didn't land on Jira/Confluence URL within 300s | Check `JIRA_URL`/`CONFLUENCE_URL` match exactly where your IdP redirects after login. Increase `ATLASSIAN_LOGIN_TIMEOUT_SECONDS` if needed |
-| Tools return HTML instead of JSON | Session expired, SSO markers not matching your IdP | Set `ATLASSIAN_SSO_MARKERS` with your IdP's URL pattern |
-| "Upstream compatibility check failed" | `mcp-atlassian` version changed its internal API | Pin to a compatible version or update the wrapper |
-| "Executable doesn't exist" | Playwright Chromium not installed | Run `python -m playwright install chromium` |
-
-
+[GPL-3.0-or-later](LICENSE)
