@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "atlassian_browser_mcp",
+  "project_id": "3d1f0e9e-a504-4c91-96af-9126f75cdf3f"
+}
