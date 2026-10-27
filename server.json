@@ -1,0 +1,69 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.GeiserX/atlassian-browser-mcp",
+  "title": "Atlassian (browser SSO)",
+  "description": "Jira and Confluence behind SSO via your own browser session: every mcp-atlassian tool, no API token",
+  "websiteUrl": "https://github.com/GeiserX/atlassian-browser-mcp",
+  "repository": {
+    "url": "https://github.com/GeiserX/atlassian-browser-mcp",
+    "source": "github",
+    "id": "1202791063"
+  },
+  "version": "1.4.1",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "atlassian-browser-mcp",
+      "version": "1.4.1",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "JIRA_URL",
+          "description": "Base URL of the Jira Server/Data Center instance (set the one you use; Jira-only and Confluence-only setups work)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "CONFLUENCE_URL",
+          "description": "Base URL of the Confluence Server/Data Center instance",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "READ_ONLY_MODE",
+          "description": "Set to true to hide every write tool (create, update, delete, transition, upload, restrictions)",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "ENABLED_TOOLS",
+          "description": "Comma-separated allow-list of tool names; unset exposes every tool",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "ATLASSIAN_BROWSER_AUTH_ENABLED",
+          "description": "Set to false to skip the browser session and use upstream token auth instead",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "ATLASSIAN_STORAGE_STATE",
+          "description": "Path of the saved browser session (cookie jar) written by atlassian-cli login; defaults to the current directory",
+          "isRequired": false,
+          "format": "filepath",
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}
