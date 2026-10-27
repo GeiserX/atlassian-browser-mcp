@@ -634,6 +634,44 @@ def _load_storage_state(path: Path) -> dict[str, Any]:
     return data
 
 
+def _ago(seconds: float) -> str:
+    """A rough human duration: "3 d", "5 h", "12 min", "40 s"."""
+    seconds = max(0, int(seconds))
+    for unit, size in (("d", 86400), ("h", 3600), ("min", 60)):
+        if seconds >= size:
+            return f"{seconds // size} {unit}"
+    return f"{seconds} s"
+
+
+def describe_saved_session(path: Path, now: float | None = None) -> str | None:
+    """One sentence on the age and expiry of a saved jar, or None without one.
+
+    Names the cookie that expired last (names only, never values), so a
+    "Not authenticated" error tells the user why the session stopped working.
+    """
+    now = time.time() if now is None else now
+    try:
+        cookies = _load_storage_state(path).get("cookies", [])
+        age = now - path.stat().st_mtime
+    except (RuntimeError, OSError):
+        return None
+    expired = []
+    for c in cookies:
+        try:
+            expires = float(c.get("expires") or 0)
+        except (TypeError, ValueError):
+            continue
+        if expires > 0 and expires < now:
+            expired.append((expires, str(c.get("name", "?"))))
+    if expired:
+        when, name = max(expired)
+        return (
+            f"The saved session is {_ago(age)} old and {len(expired)} of its cookies "
+            f"have expired, the last one ({name}) {_ago(now - when)} ago."
+        )
+    return f"The saved session is {_ago(age)} old and was not accepted."
+
+
 def filter_cookies_for_base(
     cookies: list[dict[str, Any]], base_url: str
 ) -> list[dict[str, Any]]:
@@ -953,6 +991,10 @@ class CookieAuth:
     def _missing_session_error(self, extra: str | None = None) -> AuthRequiredError:
         """Start a background harvest and build the error the caller raises."""
         details = []
+        if self.browser_config.storage_state.exists():
+            note = describe_saved_session(self.browser_config.storage_state)
+            if note:
+                details.append(note)
         if self._background_harvest():
             details.append(
                 "A search of your installed browsers for a live session is running "

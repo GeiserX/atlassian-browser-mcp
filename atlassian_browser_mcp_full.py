@@ -24,6 +24,7 @@ from atlassian_browser_auth import (
     BrowserAuthConfig,
     background_harvest_running,
     browser_auth_enabled,
+    describe_saved_session,
     harvest_enabled,
     install_browser_auth,
     _load_storage_state,
@@ -577,7 +578,10 @@ def _service_status(service: Literal["jira", "confluence"], check_live: bool) ->
                 "network or VPN, then check again."
             )
         elif not status.live:
-            status.next_step = f"The saved session was rejected (HTTP {code}). {login}"
+            note = describe_saved_session(jar)
+            status.next_step = " ".join(
+                part for part in (f"The saved session was rejected (HTTP {code}).", note, login) if part
+            )
     return status
 
 

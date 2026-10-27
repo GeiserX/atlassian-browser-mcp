@@ -264,3 +264,28 @@ def test_probe_keeps_the_secure_flag(monkeypatch):
     monkeypatch.setattr("requests.Session.get", fake_get)
     aa._probe_live(BASE, "jira", [cookie("JSESSIONID", "x", "jira.example.com", secure=True)], "ua")
     assert captured["secure"] == [True]
+
+
+# ---- the auth error says why the saved session stopped working ---------------
+def test_auth_error_names_the_cookie_that_expired(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATLASSIAN_STORAGE_STATE", str(tmp_path / "state.json"))
+    now = time.time()
+    expired = cookie("JSESSIONID", "s3cr3t-value", "jira.example.com") | {"expires": now - 3 * 3600 - 60}
+    older = cookie("XSRF", "s3cr3t-value", "jira.example.com") | {"expires": now - 9 * 86400}
+    live = cookie("sso", "s3cr3t-value", ".example.com") | {"expires": now + 3600}
+    write_jar(tmp_path / "state-jira.json", [expired, older, live])
+    auth = aba.CookieAuth(requests.Session(), "jira", BASE, allow_interactive=False)
+    with pytest.raises(aba.AuthRequiredError) as err:
+        auth.request(lambda *a, **k: _response(401), "GET", f"{BASE}/rest/api/2/myself")
+    message = str(err.value)
+    assert "2 of its cookies have expired, the last one (JSESSIONID) 3 h ago" in message
+    assert "atlassian-cli login jira" in message
+    assert "s3cr3t-value" not in message
+
+
+def test_saved_session_note_without_expired_cookies_or_jar(tmp_path):
+    jar = write_jar(tmp_path / "jar.json", [cookie("JSESSIONID", "v", "jira.example.com")])
+    assert aba.describe_saved_session(jar, now=jar.stat().st_mtime + 2 * 86400 + 5) == (
+        "The saved session is 2 d old and was not accepted."
+    )
+    assert aba.describe_saved_session(tmp_path / "missing.json") is None
