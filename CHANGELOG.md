@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.1 - 2026-10-27
+
+### Added
+
+- Published on PyPI as `atlassian-browser-mcp`: `uvx atlassian-browser-mcp` runs the server and `uvx --from atlassian-browser-mcp atlassian-cli login jira` saves a session, so no checkout is needed (#33).
+- Listed in the official MCP Registry as `io.github.GeiserX/atlassian-browser-mcp` (`server.json`) (#33).
+- Release workflow: a `v*` tag builds the package, publishes it to PyPI through a trusted publisher (OIDC, no stored token) and then publishes `server.json` to the registry (#33).
+
 ## 1.4.0 - 2026-10-27
 
 ### Security

@@ -25,6 +25,15 @@ MCP server that wraps the upstream [mcp-atlassian](https://github.com/sooperset/
 
 ## Quick start
 
+From PyPI, with [uv](https://docs.astral.sh/uv/) installed:
+
+```bash
+uvx --from atlassian-browser-mcp atlassian-cli login jira   # once per service, opens your browser
+JIRA_URL=https://jira.example.com CONFLUENCE_URL=https://confluence.example.com uvx atlassian-browser-mcp
+```
+
+From a checkout, with the exact versions in `uv.lock`:
+
 ```bash
 git clone https://github.com/GeiserX/atlassian-browser-mcp.git && cd atlassian-browser-mcp
 UV_PROJECT_ENVIRONMENT=.venv-atlassian-browser uv sync --frozen   # installs the versions in uv.lock
@@ -35,7 +44,7 @@ Needs Python 3.11+, [uv](https://docs.astral.sh/uv/), Google Chrome and a displa
 
 ## Add it to your client
 
-Every client runs the same launcher over stdio. Set only the URL of a service you use.
+Every client runs the server over stdio. Set only the URL of a service you use. The examples use the PyPI package through `uvx`; from a checkout, replace `uvx atlassian-browser-mcp` with `/path/to/atlassian-browser-mcp/run-atlassian-browser-mcp.sh`.
 
 **Claude Code**
 
@@ -43,7 +52,7 @@ Every client runs the same launcher over stdio. Set only the URL of a service yo
 claude mcp add --transport stdio atlassian \
   --env JIRA_URL=https://jira.example.com \
   --env CONFLUENCE_URL=https://confluence.example.com \
-  -- /path/to/atlassian-browser-mcp/run-atlassian-browser-mcp.sh
+  -- uvx atlassian-browser-mcp
 ```
 
 **Claude Desktop** (`claude_desktop_config.json`) and **Cursor** (`~/.cursor/mcp.json` or `.cursor/mcp.json`)
@@ -52,7 +61,8 @@ claude mcp add --transport stdio atlassian \
 {
   "mcpServers": {
     "atlassian": {
-      "command": "/path/to/atlassian-browser-mcp/run-atlassian-browser-mcp.sh",
+      "command": "uvx",
+      "args": ["atlassian-browser-mcp"],
       "env": {
         "JIRA_URL": "https://jira.example.com",
         "CONFLUENCE_URL": "https://confluence.example.com"
@@ -69,7 +79,8 @@ claude mcp add --transport stdio atlassian \
   "servers": {
     "atlassian": {
       "type": "stdio",
-      "command": "/path/to/atlassian-browser-mcp/run-atlassian-browser-mcp.sh",
+      "command": "uvx",
+      "args": ["atlassian-browser-mcp"],
       "env": {
         "JIRA_URL": "https://jira.example.com",
         "CONFLUENCE_URL": "https://confluence.example.com"
@@ -83,7 +94,8 @@ claude mcp add --transport stdio atlassian \
 
 ```toml
 [mcp_servers.atlassian]
-command = "/path/to/atlassian-browser-mcp/run-atlassian-browser-mcp.sh"
+command = "uvx"
+args = ["atlassian-browser-mcp"]
 env = { JIRA_URL = "https://jira.example.com", CONFLUENCE_URL = "https://confluence.example.com" }
 ```
 
@@ -115,3 +127,5 @@ Every tool carries a title and all four annotation hints (read-only, destructive
 ## License
 
 [GPL-3.0-or-later](LICENSE)
+
+<!-- mcp-name: io.github.GeiserX/atlassian-browser-mcp -->
