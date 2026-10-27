@@ -28,7 +28,8 @@ MCP server that wraps the upstream [mcp-atlassian](https://github.com/sooperset/
 From PyPI, with [uv](https://docs.astral.sh/uv/) installed:
 
 ```bash
-uvx --from atlassian-browser-mcp atlassian-cli login jira   # once per service, opens your browser
+JIRA_URL=https://jira.example.com uvx --from atlassian-browser-mcp atlassian-cli login jira   # once per service, opens your browser
+CONFLUENCE_URL=https://confluence.example.com uvx --from atlassian-browser-mcp atlassian-cli login confluence
 JIRA_URL=https://jira.example.com CONFLUENCE_URL=https://confluence.example.com uvx atlassian-browser-mcp
 ```
 
