@@ -167,6 +167,15 @@ def test_auth_status_survives_a_corrupt_jar(fake_atlassian):
 
 
 # ---- startup guards ------------------------------------------------------------
+def test_annotation_polish_failure_does_not_stop_startup(monkeypatch, caplog):
+    def broken():
+        raise AttributeError("'FastMCP' object has no attribute '_local_provider'")
+
+    monkeypatch.setattr(srv, "_upstream_tools", broken)
+    srv._polish_upstream_tools()
+    assert "Skipped tool annotation polish" in caplog.text
+
+
 def test_main_refuses_any_transport_but_stdio(monkeypatch):
     calls = []
     monkeypatch.setattr(srv.main_mcp, "run", lambda *a, **k: calls.append((a, k)))

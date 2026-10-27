@@ -39,7 +39,7 @@ Only the latest version receives security updates. We recommend always running t
 
 ### Data on disk
 
-- **Cookie jars** (`.atlassian-browser-state-jira.json`, `.atlassian-browser-state-confluence.json`, next to the code unless `ATLASSIAN_STORAGE_STATE` says otherwise) are plaintext JSON, mode 0600 from creation. They hold only the cookies a browser would send to that service's host and its parent domains. Jars written before 1.4 held every cookie of the browser profile; they are pruned when next loaded. The legacy shared `.atlassian-browser-state.json`, if you still have one, is not pruned: delete it once both per-service jars exist.
+- **Cookie jars** (`.atlassian-browser-state-jira.json`, `.atlassian-browser-state-confluence.json`, next to the code unless `ATLASSIAN_STORAGE_STATE` says otherwise) are plaintext JSON, mode 0600 from creation. They hold only the cookies a browser would send to that service's host and its parent domains. Jars written by earlier versions held every cookie of the browser profile; they are pruned when next loaded. The legacy shared `.atlassian-browser-state.json`, if you still have one, is not pruned: delete it once both per-service jars exist.
 - **The automation browser profile** (`.atlassian-browser-profile/`, mode 0700). If you seed it from Chrome (`ATLASSIAN_SEED_FROM_CHROME_PROFILE`), it is a copy of that whole Chrome profile: every site's cookies, saved logins and extensions. Treat it like your Chrome profile. Seeding is off unless you set that variable.
 
 ### Browser cookie reuse (macOS)

@@ -375,9 +375,14 @@ def _upstream_tools() -> list[Any]:
 
 
 def _polish_upstream_tools() -> None:
-    for tool in _upstream_tools():
-        _complete_annotations(tool)
-        _stabilise_jira_field_defaults(tool)
+    # Optional metadata that reads FastMCP internals: a fastmcp other than the
+    # locked one must not stop the server from starting.
+    try:
+        for tool in _upstream_tools():
+            _complete_annotations(tool)
+            _stabilise_jira_field_defaults(tool)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Skipped tool annotation polish: %s", exc)
 
 
 class _MissingToolsetTagFilter(logging.Filter):
