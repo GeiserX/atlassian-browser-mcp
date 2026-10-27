@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 import threading
 import time
@@ -238,7 +239,7 @@ def test_keychain_read_is_announced_once_and_uses_absolute_path(tmp_path, monkey
             assert res.error
     notices = [r for r in caplog.records if "Arc Safe Storage" in r.getMessage()]
     assert len(notices) == 1
-    assert "jira.example.com" in notices[0].getMessage()
+    assert re.search(r"\bjira\.example\.com\b", notices[0].getMessage())  # names the target host
     assert "ATLASSIAN_COOKIE_HARVEST=0" in notices[0].getMessage()
     assert argv_seen and all(a[0] == "/usr/bin/security" for a in argv_seen)
 
