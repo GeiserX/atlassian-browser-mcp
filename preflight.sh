@@ -36,54 +36,83 @@ candidate_states() {
         "$DIR/.atlassian-browser-state-jira.json" 2>/dev/null | awk '!seen[$0]++'
 }
 
+# Print a curl config (one `header = "Cookie: ..."` line) built from the cookies
+# in a jar that a browser would send to $url: same host or a parent domain
+# (dot boundary), not expired, and Secure ones only over https. The config goes
+# to curl on stdin, so cookie values never appear in the process list.
+cookie_config() {
+  python3 - "$1" "$2" <<'PY'
+import json, sys, time
+from urllib.parse import urlparse
+state, url = sys.argv[1], sys.argv[2]
+parsed = urlparse(url)
+host, https = (parsed.hostname or ""), parsed.scheme == "https"
+try:
+    cookies = json.load(open(state)).get("cookies", [])
+except Exception:
+    sys.exit(0)
+now = time.time()
+parts = []
+for c in cookies:
+    domain = (c.get("domain") or "").lstrip(".")
+    if not domain or not (host == domain or host.endswith("." + domain)):
+        continue
+    expires = c.get("expires")
+    if expires not in (None, -1, 0) and float(expires) < now:
+        continue
+    if c.get("secure") and not https:
+        continue
+    parts.append(f"{c['name']}={c['value']}")
+if parts:
+    value = "; ".join(parts).replace("\\", "\\\\").replace('"', '\\"')
+    print(f'header = "Cookie: {value}"')
+PY
+}
+
 check() {
-  local svc="$1" host path url
-  # Host comes from JIRA_URL / CONFLUENCE_URL (same as the rest of the project);
-  # no hardcoded hostnames so this stays generic/public-safe.
+  local svc="$1" url path upper
+  # The base URL comes from JIRA_URL / CONFLUENCE_URL verbatim (scheme and any
+  # context path such as /jira included); no hardcoded hostnames.
   case "$svc" in
     jira)       url="${JIRA_URL:-}";       path="/rest/api/2/myself" ;;
     confluence) url="${CONFLUENCE_URL:-}"; path="/rest/api/user/current" ;;
     *) echo "RED  $svc  (unknown service)"; return 1 ;;
   esac
   if [[ -z "$url" ]]; then
-    echo "RED  $svc  (set ${svc^^}_URL env var)"; return 1
+    upper="$(printf '%s' "$svc" | tr '[:lower:]' '[:upper:]')"
+    echo "RED  $svc  (set ${upper}_URL env var)"; return 1
   fi
-  host="${url#*://}"; host="${host%%/*}"
+  url="${url%/}"
 
   local states; states="$(candidate_states "$svc")"
 
-  local tried=0 had_cookies=0 last_code=""
-  local state cookie code
+  local had_cookies=0 last_code=""
+  local state config code body
+  body="$(mktemp "${TMPDIR:-/tmp}/atl-preflight.XXXXXX")"
   while IFS= read -r state; do
-    [[ -f "$state" ]] || continue
     [[ -z "$state" ]] && continue
-    tried=$((tried+1))
-    # Build a Cookie header from cookies whose domain matches this host.
-    # No secret values are printed; only used in the request.
-    cookie="$(python3 - "$state" "$host" <<'PY'
-import json,sys
-state,host=sys.argv[1],sys.argv[2]
-try:
-    ck=json.load(open(state)).get("cookies",[])
-except Exception:
-    sys.exit(0)
-parts=[f"{c['name']}={c['value']}" for c in ck
-       if host.endswith(c.get("domain","").lstrip("."))]
-print("; ".join(parts))
-PY
-)"
-    [[ -z "$cookie" ]] && continue
+    [[ -f "$state" ]] || continue
+    config="$(cookie_config "$state" "$url")"
+    [[ -z "$config" ]] && continue
     had_cookies=1
-    code="$(curl -s -o /dev/null -w '%{http_code}' \
+    code="$(printf '%s\n' "$config" | curl -s -o "$body" -w '%{http_code}' \
                 --max-time "$MAXTIME" --connect-timeout 5 \
-                -H "Cookie: $cookie" -H "Accept: application/json" \
-                "https://${host}${path}" 2>/dev/null)"
+                -K - -H "Accept: application/json" \
+                "${url}${path}" 2>/dev/null)"
+    # Confluence answers 200 with an anonymous user on instances that allow
+    # anonymous access, so a 200 alone does not prove the session is live.
+    if [[ "$code" == "200" && "$svc" == "confluence" ]] \
+       && grep -Eq '"type"[[:space:]]*:[[:space:]]*"anonymous"' "$body"; then
+      code="401"
+    fi
     last_code="$code"
     if [[ "$code" == "200" ]]; then
+      rm -f "$body"
       echo "GREEN $svc  (session valid; ${state##*/})"
       return 0
     fi
   done <<< "$states"
+  rm -f "$body"
 
   # Saved jars are missing or stale. Before declaring RED, try harvesting a LIVE
   # session from any installed browser (bounded, opens no window). This is what
@@ -101,7 +130,7 @@ PY
   fi
 
   if [[ "$had_cookies" == "0" ]]; then
-    echo "RED  $svc  (no $host cookies; no live browser session) — run: atlassian-cli login $svc"
+    echo "RED  $svc  (no cookies for $url; no live browser session) — run: atlassian-cli login $svc"
     return 1
   fi
   # had cookies but none authenticated — classify by the last response code

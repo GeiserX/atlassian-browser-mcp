@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from typing import Any
 
@@ -159,12 +158,22 @@ def cmd_conf_get(args: argparse.Namespace) -> None:
         print(body)
 
 
+def _cql_string(value: str) -> str:
+    """Quote user text as a CQL string literal (escape backslashes and quotes)."""
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def build_cql(text: str, space: str | None = None) -> str:
+    """Turn plain search text (or a CQL query) into the CQL that is sent."""
+    if space and "space" not in text.lower():
+        return f"space = {_cql_string(space)} AND text ~ {_cql_string(text)}"
+    if "~" not in text and "=" not in text:
+        return f"text ~ {_cql_string(text)}"
+    return text
+
+
 def cmd_conf_search(args: argparse.Namespace) -> None:
-    cql = args.cql
-    if args.space and "space" not in cql.lower():
-        cql = f'space = "{args.space}" AND text ~ "{args.cql}"'
-    elif "~" not in cql and "=" not in cql:
-        cql = f'text ~ "{args.cql}"'
+    cql = build_cql(args.cql, args.space)
     data = _get_json("confluence", "/rest/api/content/search",
                      {"cql": cql, "limit": args.limit})
     for r in data.get("results", []):
