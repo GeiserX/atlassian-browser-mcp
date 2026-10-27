@@ -31,6 +31,7 @@ bounded() {
 LOCK_STAMP="${VENV_DIR}/.uv-lock-installed"
 lock_sum="$(cksum < "${ROOT_DIR}/uv.lock")"
 if [[ ! -x "${PYTHON_BIN}" ]] \
+  || [[ ! -x "${MCP_BIN}" ]] \
   || [[ "$(cat "${LOCK_STAMP}" 2>/dev/null)" != "${lock_sum}" ]] \
   || ! "${PYTHON_BIN}" - <<'PY' >/dev/null 2>&1
 import importlib.metadata as m
@@ -39,7 +40,10 @@ import mcp_atlassian, playwright, requests  # noqa: F401
 PY
 then
   # Install exactly the versions in uv.lock (no fresh resolution at startup).
-  UV_PROJECT_ENVIRONMENT="${VENV_DIR}" bounded uv sync --frozen --project "${ROOT_DIR}" >&2 \
+  # Reinstalling this project recreates its console script: a plain sync can
+  # consider it current and leave a deleted ${MCP_BIN} missing.
+  UV_PROJECT_ENVIRONMENT="${VENV_DIR}" bounded uv sync --frozen \
+    --reinstall-package atlassian-browser-mcp --project "${ROOT_DIR}" >&2 \
     || { echo "atlassian-browser-mcp: dependency install failed or timed out" >&2; exit 1; }
   printf '%s\n' "${lock_sum}" > "${LOCK_STAMP}"
 fi
