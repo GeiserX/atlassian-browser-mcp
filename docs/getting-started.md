@@ -12,7 +12,7 @@
 
 ```bash
 git clone https://github.com/GeiserX/atlassian-browser-mcp.git && cd atlassian-browser-mcp
-uv venv --python 3.11 .venv-atlassian-browser && uv pip install --python .venv-atlassian-browser/bin/python -e .
+UV_PROJECT_ENVIRONMENT=.venv-atlassian-browser uv sync --frozen   # the versions in uv.lock
 export JIRA_URL="https://jira.example.com" CONFLUENCE_URL="https://confluence.example.com"
 ./atlassian-cli login jira          # once per service, in a terminal with a display
 ./atlassian-cli login confluence
@@ -44,7 +44,7 @@ separate cookie jars but share one seeded profile.
 
 ## Add the server to your MCP client
 
-Add to your Claude Code, Cursor, or other MCP client configuration:
+Add to your MCP client configuration (only the URL of each service you use is needed):
 
 ```json
 {
@@ -61,4 +61,4 @@ Add to your Claude Code, Cursor, or other MCP client configuration:
 }
 ```
 
-The launcher creates the venv if it is missing, installs the dependencies, checks the upstream `mcp-atlassian` version and starts the server over stdio. The server reuses the cookies from the CLI login and never opens a browser; when they expire, it returns an `AuthRequiredError` asking you to run `./atlassian-cli login <service>` again.
+The launcher installs the locked dependencies (`uv sync --frozen`) if they are missing and starts the server over stdio; the server checks the upstream `mcp-atlassian` signatures before serving. Per-client snippets (Claude Code, Claude Desktop, Cursor, VS Code, Codex) are in the README. The server reuses the cookies from the CLI login and never opens a browser; when they expire, it returns an `AuthRequiredError` asking you to run `./atlassian-cli login <service>` again.

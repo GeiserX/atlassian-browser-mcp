@@ -23,8 +23,10 @@ from __future__ import annotations
 import json
 import os
 import sys
-from dataclasses import dataclass
+import tempfile
+from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 
@@ -63,11 +65,7 @@ class AutoAuthResult:
     cookie_count: int = 0
     storage_state_path: str | None = None
     # Per-candidate notes for diagnostics ("arc/Default: 200", "chrome/Default: no cookies").
-    attempts: list[str] = None  # type: ignore[assignment]
-
-    def __post_init__(self) -> None:
-        if self.attempts is None:
-            self.attempts = []
+    attempts: list[str] = field(default_factory=list)
 
 
 def _probe_live(base_url: str, service: str, cookies: list[dict], user_agent: str) -> int:
@@ -87,6 +85,9 @@ def _probe_live(base_url: str, service: str, cookies: list[dict], user_agent: st
                 c["value"],
                 domain=str(c.get("domain", "")).lstrip("."),
                 path=c.get("path", "/"),
+                # Keep the Secure flag so a Secure session cookie is never sent
+                # over plain HTTP by the probe.
+                secure=bool(c.get("secure")),
             )
         except Exception:  # noqa: BLE001 - a malformed cookie shouldn't kill the probe
             continue
@@ -108,14 +109,42 @@ def _to_storage_state(cookies: list[dict]) -> dict:
     return {"cookies": cookies, "origins": []}
 
 
+def write_private_json(data: object, path: Path) -> None:
+    """Write JSON atomically to ``path`` with mode 0600 from the moment it exists.
+
+    The temp file is created by os.open with mode 0600 (and O_EXCL), so there is
+    no window in which another local user can read the cookies before a chmod.
+    A missing parent directory is created 0700; an existing one is left alone.
+    """
+    path = Path(path)
+    if not path.parent.exists():
+        path.parent.mkdir(parents=True, mode=0o700)
+        path.parent.chmod(0o700)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    # mkstemp already opens with 0600; chmod again in case a platform differs.
+    os.fchmod(fd, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2)
+        os.replace(tmp_name, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+
+
 def write_storage_state(cookies: list[dict], path: Path) -> None:
     """Persist cookies as a Playwright storage_state JSON (mode 0600)."""
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(_to_storage_state(cookies), indent=2))
-    tmp.chmod(0o600)
-    tmp.replace(path)
-    path.chmod(0o600)
+    write_private_json(_to_storage_state(cookies), Path(path))
+
+
+def _https_or_allowed(base_url: str) -> bool:
+    """Cookies are only probed over https unless ATLASSIAN_ALLOW_HTTP is set."""
+    if urlparse(base_url).scheme == "https":
+        return True
+    return os.environ.get("ATLASSIAN_ALLOW_HTTP", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def auto_harvest(
@@ -134,6 +163,12 @@ def auto_harvest(
     """
     ua = user_agent or os.environ.get("ATLASSIAN_BROWSER_USER_AGENT", _DEFAULT_UA)
     result = AutoAuthResult(service=service, authenticated=False)
+    if not _https_or_allowed(base_url):
+        # Harvested cookies include SSO session cookies; never send them in clear.
+        result.attempts.append(
+            f"skipped: {base_url} is not https (set ATLASSIAN_ALLOW_HTTP=1 to allow)"
+        )
+        return result
 
     for prof in installed_profiles():
         harvest: HarvestResult = harvest_cookies_for_url(prof, base_url)

@@ -6,10 +6,10 @@ MCP server wrapping upstream [mcp-atlassian](https://github.com/sooperset/mcp-at
 
 ## Architecture
 
-- `atlassian_browser_mcp_full.py` — MCP entrypoint. Monkey-patches upstream `JiraClient` and `ConfluenceClient` constructors to inject browser-backed sessions. Registers `atlassian_login` tool. Runs the MCP server.
+- `atlassian_browser_mcp_full.py` — MCP entrypoint. Patches upstream `JiraClient` and `ConfluenceClient` constructors: they run upstream's own constructor (credential-free "external" mode, so all of upstream's SSRF/retry/proxy hardening applies) and then install the browser cookies on that session with `install_browser_auth`. Never rebuild the session from scratch: `tests/test_upstream_hardening.py` fails if the patched session differs from upstream's. Registers `atlassian_auth_status` and `atlassian_login`, completes tool annotations, runs the server on stdio only.
 - `atlassian_browser_auth.py` — Shared auth core: `BrowserCookieSession` (requests.Session subclass), `interactive_login()`, profile seeding, SSO redirect detection. Both the MCP server and the CLI use this.
 - `atlassian_cli.py` + `atlassian-cli` — Command-line front-end over the same auth core (Jira/Confluence get/search, login). Preferred for agents and scripting; no MCP transport involved. See `AGENT_USAGE.md`.
-- `run-atlassian-browser-mcp.sh` — MCP launcher: creates venv via `uv`, installs deps, runs upstream compatibility check, starts server.
+- `run-atlassian-browser-mcp.sh` — MCP launcher: installs the locked deps (`uv sync --frozen`) when missing, starts the server (which runs the upstream compatibility check).
 
 ## ⚠️ Two-process architecture: the server NEVER opens a browser
 
@@ -70,7 +70,7 @@ this section is the rationale and the two hard rules.
 ## Key Design Decisions
 
 - **Monkey-patching over forking**: We patch upstream client `__init__` methods at import time rather than maintaining a fork. An `assert_upstream_compatibility()` check validates signatures on startup.
-- **Version pinning**: Pinned to `mcp-atlassian>=0.23.1,<1.0.0`. Bump carefully — upstream signature changes will break patches.
+- **Version pinning**: Pinned to `mcp-atlassian>=0.23.1,<1.0.0`, exact versions in `uv.lock` (refresh with `uv lock`). Bump carefully — upstream signature changes will break patches. MCP 2026-07-28 needs mcp>=2 / fastmcp>=4, which upstream still forbids (sooperset/mcp-atlassian#1541).
 - **No hardcoded URLs**: `JIRA_URL` and `CONFLUENCE_URL` are required env vars with no defaults.
 - **Configurable SSO detection**: `ATLASSIAN_SSO_MARKERS` env var accepts comma-separated markers. Defaults cover Okta, ADFS, Azure AD, PingOne, Google SAML.
 

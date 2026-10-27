@@ -22,8 +22,13 @@ dependencies = [
     "mcp-atlassian>=0.23.1,<1.0.0",
     "playwright>=1.58.0",
     "requests>=2.33.1",
-    "cryptography>=42.0.0",
+    # 44.0.1 carries the fixes for CVE-2024-26130 and the bundled-OpenSSL
+    # CVE-2024-12797.
+    "cryptography>=44.0.1",
 ]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
 
 [project.urls]
 Homepage = "https://github.com/GeiserX/atlassian-browser-mcp"
@@ -32,11 +37,16 @@ Issues = "https://github.com/GeiserX/atlassian-browser-mcp/issues"
 
 [project.scripts]
 atlassian-browser-mcp = "atlassian_browser_mcp_full:main"
+atlassian-cli = "atlassian_cli:main"
 
 [tool.setuptools]
 py-modules = [
     "atlassian_browser_auth",
     "atlassian_browser_mcp_full",
+    "atlassian_cli",
     "cookie_harvest",
     "cookie_autoauth",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -23,33 +23,33 @@ jobs:
         python-version: ['3.11', '3.12', '3.13']
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # This job installs and runs repository code, including from
           # fork PRs. Nothing here pushes, so the token has no reason to
           # stay in .git/config where that code could reach it.
           persist-credentials: false
 
-      - uses: actions/setup-python@v7
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: '0.13.6'
           python-version: ${{ matrix.python-version }}
-          cache: pip
+          enable-cache: true
 
-      - name: Install the package and its pinned upstream
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e . pytest
+      # --locked fails if uv.lock no longer matches pyproject.toml, so a
+      # dependency change cannot land without its lockfile.
+      - name: Install the locked dependencies
+        run: uv sync --locked --extra dev
 
       - name: Tests
-        run: python -m pytest tests/ -q
+        run: uv run --no-sync python -m pytest -q
 
       # The wrapper monkey-patches four upstream functions. This asserts the
-      # version we actually pin still has the signatures those patches expect —
-      # the same check the server runs at startup, so a bad bump fails here
-      # instead of at someone's first tool call.
-      - name: Upstream compatibility (against the pinned mcp-atlassian)
+      # version we actually pin still has the signatures those patches expect,
+      # the same check the server runs at startup.
+      - name: Upstream compatibility (against the locked mcp-atlassian)
         run: |
-          python - <<'PY'
+          uv run --no-sync python - <<'PY'
           from importlib.metadata import version
           from atlassian_browser_mcp_full import assert_upstream_compatibility
 

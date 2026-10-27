@@ -11,35 +11,46 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ ! -x "${PYTHON_BIN}" ]]; then
-  uv venv "${VENV_DIR}"
-fi
+# Run a command with a time bound when a timeout binary exists. Stock macOS
+# has none (GNU coreutils provides `timeout` or `gtimeout`); uv's own network
+# timeouts still bound the install there.
+bounded() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 600 "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout 600 "$@"
+  else
+    "$@"
+  fi
+}
 
-# Check the package and its deps are importable — NOT an exact version. Pinning
-# an exact version here meant every version bump forced a reinstall on startup
-# (slow, network-dependent: a hang vector). We only reinstall when something is
-# actually missing/broken.
-if ! "${PYTHON_BIN}" - <<'PY' >/dev/null 2>&1
+# Install only when uv.lock changed since the last install or something is
+# missing/broken, never on every start (slow, network-dependent: a hang
+# vector). The stamp is the checksum of the uv.lock that was installed, so a
+# pulled security bump is picked up on the next start.
+LOCK_STAMP="${VENV_DIR}/.uv-lock-installed"
+lock_sum="$(cksum < "${ROOT_DIR}/uv.lock")"
+if [[ ! -x "${PYTHON_BIN}" ]] \
+  || [[ ! -x "${MCP_BIN}" ]] \
+  || [[ "$(cat "${LOCK_STAMP}" 2>/dev/null)" != "${lock_sum}" ]] \
+  || ! "${PYTHON_BIN}" - <<'PY' >/dev/null 2>&1
 import importlib.metadata as m
 m.version("atlassian-browser-mcp")  # raises if not installed
 import mcp_atlassian, playwright, requests  # noqa: F401
 PY
 then
-  # Bound the install so a slow/offline network fails fast instead of hanging
-  # the MCP startup forever. 600s is generous for a cold editable install.
-  timeout 600 uv pip install --python "${PYTHON_BIN}" -e "${ROOT_DIR}" \
+  # Install exactly the versions in uv.lock (no fresh resolution at startup).
+  # Reinstalling this project recreates its console script: a plain sync can
+  # consider it current and leave a deleted ${MCP_BIN} missing.
+  UV_PROJECT_ENVIRONMENT="${VENV_DIR}" bounded uv sync --frozen \
+    --reinstall-package atlassian-browser-mcp --project "${ROOT_DIR}" >&2 \
     || { echo "atlassian-browser-mcp: dependency install failed or timed out" >&2; exit 1; }
+  printf '%s\n' "${lock_sum}" > "${LOCK_STAMP}"
 fi
 
-if ! "${PYTHON_BIN}" -m playwright install --list 2>/dev/null | grep -q "chromium"; then
-  timeout 600 "${PYTHON_BIN}" -m playwright install chromium >/dev/null \
-    || { echo "atlassian-browser-mcp: playwright chromium install failed or timed out" >&2; exit 1; }
-fi
-
-# Startup compatibility assertion: verify the upstream version and patched signatures
-"${PYTHON_BIN}" - <<'PY'
-from atlassian_browser_mcp_full import assert_upstream_compatibility
-assert_upstream_compatibility()
-PY
-
+# No browser download here: the server never opens a browser. `atlassian-cli
+# login` drives your installed Google Chrome by default. Only if you set
+# ATLASSIAN_BROWSER_CHANNEL=chromium do you need:
+#   .venv-atlassian-browser/bin/python -m playwright install chromium
+# main() checks upstream compatibility before serving.
 exec "${MCP_BIN}"

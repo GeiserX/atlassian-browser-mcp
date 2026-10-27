@@ -13,7 +13,8 @@ already there".
 macOS specifics (all verified empirically):
   - Each browser encrypts cookie *values* with a key in the login Keychain under
     a service named "<Browser> Safe Storage" (e.g. "Arc Safe Storage"). The key
-    is read non-interactively via `security find-generic-password -w -s <svc>`.
+    is read via `/usr/bin/security find-generic-password -w -s <svc>`; macOS may
+    ask the user first, and each read is announced once on stderr.
   - v10 scheme: AES-128-CBC, key = PBKDF2-HMAC-SHA1(keychain_pw, b"saltysalt",
     1003, dklen=16), IV = 16 spaces, PKCS7 padding. Newer Chromium prepends a
     32-byte SHA256(domain) authenticity hash to the plaintext — stripped here.
@@ -29,6 +30,7 @@ local cookie DBs + the Keychain. The caller decides what to do with the result.
 from __future__ import annotations
 
 import glob
+import logging
 import os
 import shutil
 import sqlite3
@@ -55,6 +57,15 @@ _KDF_KEYLEN = 16
 _AES_IV = b" " * 16
 
 _KEYCHAIN_TIMEOUT_S = 10
+
+# Absolute path: never let a writable directory earlier in PATH stand in for
+# the binary that receives a browser's Safe Storage key.
+_SECURITY_BIN = "/usr/bin/security"
+
+logger = logging.getLogger("atlassian-browser-mcp.cookie-harvest")
+
+# Keychain items already announced in this process (see _announce_keychain_read).
+_ANNOUNCED_KEYCHAIN_READS: set[str] = set()
 
 
 @dataclass(frozen=True)
@@ -164,16 +175,40 @@ def installed_profiles() -> list[BrowserProfile]:
     return out
 
 
+def _announce_keychain_read(service: str, target_host: str) -> None:
+    """Say once per process which Keychain item is read, and why.
+
+    Reading a browser's "Safe Storage" key is what lets this tool decrypt that
+    browser's cookies. macOS usually asks the user first; answering "Always
+    Allow" adds /usr/bin/security to the item's access list for good, after
+    which any local process can read the key. The user should know this is
+    happening, so it is logged instead of done silently.
+    """
+    if service in _ANNOUNCED_KEYCHAIN_READS:
+        return
+    _ANNOUNCED_KEYCHAIN_READS.add(service)
+    logger.warning(
+        "Reading the '%s' key from the macOS login Keychain to decrypt this "
+        "browser's cookies for %s. macOS may ask for permission; 'Always Allow' "
+        "lets any local process read that key from then on. Set "
+        "ATLASSIAN_COOKIE_HARVEST=0 to turn browser cookie reuse off, or "
+        "ATLASSIAN_COOKIE_SOURCE_BROWSERS to limit which browsers are read.",
+        service,
+        target_host,
+    )
+
+
 def _read_keychain_password(service: str) -> str | None:
-    """Read a browser's Safe Storage key from the login Keychain (non-interactive).
+    """Read a browser's Safe Storage key from the login Keychain.
 
     `security find-generic-password -w -s "<service>"` prints the password and
-    exits 0 when present, without prompting (the login keychain is unlocked for
-    the logged-in user). Returns None on any failure so the caller can move on.
+    exits 0 when present. The item's access list normally names only the owning
+    browser, so macOS may show a consent dialog the first time. Returns None on
+    any failure so the caller can move on.
     """
     try:
         proc = subprocess.run(
-            ["security", "find-generic-password", "-w", "-s", service],
+            [_SECURITY_BIN, "find-generic-password", "-w", "-s", service],
             capture_output=True,
             text=True,
             timeout=_KEYCHAIN_TIMEOUT_S,
@@ -263,6 +298,7 @@ def harvest_cookies_for_url(
         result.error = "invalid base_url"
         return result
 
+    _announce_keychain_read(profile.keychain_service, target_host)
     keychain_pw = _read_keychain_password(profile.keychain_service)
     if keychain_pw is None:
         result.error = f"no keychain key for '{profile.keychain_service}'"

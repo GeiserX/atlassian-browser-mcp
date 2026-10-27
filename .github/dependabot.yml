@@ -1,7 +1,9 @@
 version: 2
 
 updates:
-  - package-ecosystem: "pip"
+  # "uv" updates pyproject.toml and uv.lock together; the "pip" ecosystem
+  # would leave the lockfile behind and CI (uv sync --locked) would fail.
+  - package-ecosystem: "uv"
     directory: "/"
     schedule:
       interval: "weekly"
@@ -19,7 +21,7 @@ updates:
         update-types:
           - "minor"
           - "patch"
-      pip-security:
+      uv-security:
         applies-to: security-updates
         patterns:
           - "*"

@@ -22,12 +22,14 @@ anything — it already works once `JIRA_URL` / `CONFLUENCE_URL` are set.
    closes and saves the jar. That Chrome automation profile then keeps the SSO
    session, so subsequent refreshes are hands-free.
 
-The MCP **server never opens a window** (it can harvest silently, but on a true
-miss it raises "run `atlassian-cli login`" instead of hanging). Only the CLI,
+The MCP **server never opens a window**. On a miss it raises "run `atlassian-cli
+login`" at once and looks for a live browser session in the background (announced
+on stderr), so a retry a few seconds later may already work. The
+`atlassian_auth_status` tool shows which service needs a login. Only the CLI,
 run by a human in a terminal, ever shows the interactive SSO window.
 
 **Diagnose first, don't guess:** to see exactly which browsers have cookies and
-whether any session is live, run `python3 cookie_autoauth.py jira` (or
+whether any session is live, run `.venv-atlassian-browser/bin/python cookie_autoauth.py jira` (or
 `confluence`) — it prints a per-browser line like `arc/Default: 7 cookies ->
 HTTP 200`. If it says no browser is live, the session genuinely expired and an
 SSO `login` is required; that is not a tooling bug.
@@ -96,7 +98,7 @@ First, the tool already tried to auto-harvest a live session from every browser
 and found none live. Confirm what's actually there:
 
 ```bash
-python3 cookie_autoauth.py jira        # per-browser cookie + live-probe report
+.venv-atlassian-browser/bin/python cookie_autoauth.py jira        # per-browser cookie + live-probe report
 ```
 
 - If a browser shows `-> HTTP 200`, auth will just work (re-run your command).

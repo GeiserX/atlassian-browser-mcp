@@ -32,16 +32,21 @@ class AuthRequiredError(RuntimeError):
     exact command to run.
     """
 
-    def __init__(self, service: ServiceName) -> None:
+    def __init__(self, service: ServiceName, detail: str | None = None) -> None:
         self.service = service
-        super().__init__(
+        message = (
             f"Not authenticated for {service}. Run `atlassian-cli login {service}` "
             f"in a terminal to sign in, then retry. (The server never opens a "
             f"browser itself to avoid hanging.)"
         )
+        if detail:
+            message = f"{message} {detail}"
+        super().__init__(message)
 
 
-_LOGIN_LOCK = threading.Lock()
+# Reentrant: CookieAuth.request holds it while calling interactive_login, which
+# takes it again to serialize profile seeding.
+_LOGIN_LOCK = threading.RLock()
 _USERNAME_SELECTORS = [
     'input[name="identifier"]',
     'input[name="username"]',
@@ -125,15 +130,22 @@ class BrowserAuthConfig:
         """
         jira_url = os.environ.get("JIRA_URL", "").rstrip("/")
         confluence_url = os.environ.get("CONFLUENCE_URL", "").rstrip("/")
-        if not jira_url:
+        # Only the URL of the service being used is required, so a Jira-only or
+        # Confluence-only deployment works.
+        if service == "jira" and not jira_url:
             raise RuntimeError(
                 "JIRA_URL environment variable is required. "
                 "Set it to your Jira instance URL (e.g., https://jira.example.com)"
             )
-        if not confluence_url:
+        if service == "confluence" and not confluence_url:
             raise RuntimeError(
                 "CONFLUENCE_URL environment variable is required. "
                 "Set it to your Confluence instance URL (e.g., https://confluence.example.com)"
+            )
+        if service is None and not (jira_url or confluence_url):
+            raise RuntimeError(
+                "Set JIRA_URL and/or CONFLUENCE_URL to your Atlassian instance URL "
+                "(e.g., https://jira.example.com)."
             )
         base_dir = Path(__file__).resolve().parent
         return cls(
@@ -158,7 +170,8 @@ class BrowserAuthConfig:
                 os.environ.get("ATLASSIAN_LOGIN_TIMEOUT_SECONDS", "300")
             ),
             jira_login_url=os.environ.get(
-                "ATLASSIAN_JIRA_LOGIN_URL", f"{jira_url}/secure/Dashboard.jspa"
+                "ATLASSIAN_JIRA_LOGIN_URL",
+                f"{jira_url}/secure/Dashboard.jspa" if jira_url else "",
             ),
             confluence_login_url=os.environ.get(
                 "ATLASSIAN_CONFLUENCE_LOGIN_URL", confluence_url
@@ -248,7 +261,12 @@ class BrowserAuthConfig:
 
     def service_base(self, service: ServiceName) -> str:
         """Return the base URL for the given service."""
-        return self.jira_url if service == "jira" else self.confluence_url
+        base = self.jira_url if service == "jira" else self.confluence_url
+        if not base:
+            raise RuntimeError(
+                f"{service.upper()}_URL environment variable is required for {service}."
+            )
+        return base
 
     def login_target(self, service: ServiceName) -> str:
         """Return the login entry point URL for the given service."""
@@ -446,11 +464,11 @@ def interactive_login(
 ) -> dict[str, Any]:
     """Open a browser window for interactive SSO/MFA login and save cookies."""
     cfg = config or BrowserAuthConfig.from_env(service)
+    # The automation profile is this tool's own directory, so it is kept 0700.
     cfg.profile_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     cfg.profile_dir.chmod(0o700)
-    cfg.storage_state.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    if cfg.storage_state.parent != cfg.profile_dir:
-        cfg.storage_state.parent.chmod(0o700)
+    # The jar's parent may be the repo, site-packages or $HOME: never chmod an
+    # existing directory. write_private_json creates a missing one as 0700.
     target_url = url or cfg.login_target(service)
 
     with _LOGIN_LOCK:
@@ -528,8 +546,11 @@ def interactive_login(
                         authenticated = False
 
                     if authenticated:
-                        context.storage_state(path=str(cfg.storage_state))
-                        cfg.storage_state.chmod(0o600)
+                        save_login_jar(
+                            context.storage_state(),
+                            cfg.storage_state,
+                            cfg.service_base(service),
+                        )
                         context.close()
                         print(
                             f"[atlassian-browser-auth] Login successful for {service}. Cookies saved.",
@@ -561,8 +582,34 @@ def interactive_login(
             )
 
 
+# Parsed jars, keyed by path, reused while the file's (mtime, size) is unchanged.
+# The server builds a new client per tool call; this keeps each call from
+# re-reading and re-parsing the jar from disk.
+_JAR_CACHE: dict[Path, tuple[tuple[int, int], dict[str, Any]]] = {}
+_JAR_CACHE_LOCK = threading.Lock()
+
+
+def _jar_stamp(path: Path) -> tuple[int, int] | None:
+    """Return (mtime_ns, size) of the jar, or None when it does not exist."""
+    try:
+        st = path.stat()
+    except FileNotFoundError:
+        return None
+    return (st.st_mtime_ns, st.st_size)
+
+
 def _load_storage_state(path: Path) -> dict[str, Any]:
-    """Load and validate the Playwright storage state JSON file."""
+    """Load and validate the Playwright storage state JSON file.
+
+    The parsed result is cached until the file changes on disk (for example
+    after `atlassian-cli login` or a harvest rewrites it).
+    """
+    stamp = _jar_stamp(path)
+    if stamp is not None:
+        with _JAR_CACHE_LOCK:
+            cached = _JAR_CACHE.get(path)
+        if cached and cached[0] == stamp:
+            return cached[1]
     try:
         data = json.loads(path.read_text())
     except FileNotFoundError as exc:
@@ -581,7 +628,75 @@ def _load_storage_state(path: Path) -> dict[str, Any]:
         raise RuntimeError(
             f"Invalid storage state structure in {path} (missing cookies list)"
         )
+    if stamp is not None:
+        with _JAR_CACHE_LOCK:
+            _JAR_CACHE[path] = (stamp, data)
     return data
+
+
+def _ago(seconds: float) -> str:
+    """A rough human duration: "3 d", "5 h", "12 min", "40 s"."""
+    seconds = max(0, int(seconds))
+    for unit, size in (("d", 86400), ("h", 3600), ("min", 60)):
+        if seconds >= size:
+            return f"{seconds // size} {unit}"
+    return f"{seconds} s"
+
+
+def describe_saved_session(path: Path, now: float | None = None) -> str | None:
+    """One sentence on the age and expiry of a saved jar, or None without one.
+
+    Names the cookie that expired last (names only, never values), so a
+    "Not authenticated" error tells the user why the session stopped working.
+    """
+    now = time.time() if now is None else now
+    try:
+        cookies = _load_storage_state(path).get("cookies", [])
+        age = now - path.stat().st_mtime
+    except (RuntimeError, OSError):
+        return None
+    expired = []
+    for c in cookies:
+        try:
+            expires = float(c.get("expires") or 0)
+        except (TypeError, ValueError):
+            continue
+        if expires > 0 and expires < now:
+            expired.append((expires, str(c.get("name", "?"))))
+    if expired:
+        when, name = max(expired)
+        return (
+            f"The saved session is {_ago(age)} old and {len(expired)} of its cookies "
+            f"have expired, the last one ({name}) {_ago(now - when)} ago."
+        )
+    return f"The saved session is {_ago(age)} old and was not accepted."
+
+
+def filter_cookies_for_base(
+    cookies: list[dict[str, Any]], base_url: str
+) -> list[dict[str, Any]]:
+    """Keep only cookies that a browser would send to ``base_url``'s host.
+
+    That is cookies for the host itself and for its parent domains (where a
+    corporate SSO cookie may live). Everything else in a browser profile
+    (other sites, the IdP's own cookies) is dropped.
+    """
+    return [c for c in cookies if _cookie_matches_base_url(c, base_url)]
+
+
+def save_login_jar(
+    storage_state: dict[str, Any], path: Path, base_url: str
+) -> int:
+    """Write the service's cookies from a browser storage state as the jar.
+
+    Only cookies for ``base_url``'s host (and parent domains) are kept, and the
+    file is 0600 from creation. Returns the number of cookies written.
+    """
+    from cookie_autoauth import write_storage_state
+
+    cookies = filter_cookies_for_base(storage_state.get("cookies", []), base_url)
+    write_storage_state(cookies, Path(path))
+    return len(cookies)
 
 
 def _cookie_matches_base_url(cookie: dict[str, Any], base_url: str) -> bool:
@@ -661,30 +776,159 @@ def looks_like_sso_response(response: requests.Response) -> bool:
     return is_html and any(marker in body_sample for marker in markers)
 
 
-class BrowserCookieSession(requests.Session):
-    """Requests session that refreshes itself through the Playwright browser profile."""
+
+
+# Methods that are safe to send again after re-authenticating. Anything else
+# (POST, PUT, PATCH, DELETE) may already have changed data, or carry a file
+# body that the first send consumed, so it is never replayed automatically.
+_REPLAYABLE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+# Seconds to wait before another background harvest after one finished without
+# a live session. Each harvest may read the Keychain, so it must not repeat on
+# every tool call.
+_HARVEST_COOLDOWN_S = 60.0
+
+
+@dataclass
+class _HarvestState:
+    lock: threading.Lock
+    thread: threading.Thread | None = None
+    last_finished: float = 0.0
+    last_result: str | None = None
+
+
+_HARVESTS: dict[ServiceName, _HarvestState] = {}
+_HARVESTS_LOCK = threading.Lock()
+
+
+def harvest_enabled() -> bool:
+    """Return whether reusing cookies from installed browsers is enabled."""
+    return _env_truthy("ATLASSIAN_COOKIE_HARVEST", True)
+
+
+def _harvest_state(service: ServiceName) -> _HarvestState:
+    with _HARVESTS_LOCK:
+        state = _HARVESTS.get(service)
+        if state is None:
+            state = _HarvestState(lock=threading.Lock())
+            _HARVESTS[service] = state
+        return state
+
+
+def background_harvest_running(service: ServiceName) -> bool:
+    """True while a background harvest for ``service`` is in progress."""
+    state = _harvest_state(service)
+    with state.lock:
+        return bool(state.thread and state.thread.is_alive())
+
+
+def _run_auto_harvest(
+    service: ServiceName, base_url: str, storage_state: Path, user_agent: str
+) -> bool:
+    """Run one bounded harvest; write the jar on success. Never raises."""
+    if not harvest_enabled():
+        return False
+    try:
+        # Imported lazily so a harvest-disabled environment never pays for it.
+        from cookie_autoauth import auto_harvest
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("auto-harvest unavailable: %s", exc)
+        return False
+    try:
+        res = auto_harvest(
+            service,
+            base_url,
+            storage_state_path=storage_state,
+            user_agent=user_agent,
+        )
+    except Exception as exc:  # noqa: BLE001 - harvest must never break auth
+        logger.debug("auto-harvest error for %s: %s", service, exc)
+        return False
+    if res.authenticated:
+        print(
+            f"[atlassian-browser-auth] Reused live {service} session from "
+            f"{res.browser}/{res.profile} ({res.cookie_count} cookies), no login needed.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return True
+    if res.attempts:
+        print(
+            f"[atlassian-browser-auth] No live {service} session in any browser "
+            f"({'; '.join(res.attempts)}).",
+            file=sys.stderr,
+            flush=True,
+        )
+    return False
+
+
+def start_background_harvest(
+    service: ServiceName, base_url: str, storage_state: Path, user_agent: str
+) -> bool:
+    """Look for a live browser session in a daemon thread, never blocking.
+
+    The MCP server calls this instead of harvesting inline: a harvest reads the
+    Keychain and probes the network for every browser profile, which can take
+    a long time, and the server builds its clients on the asyncio event loop.
+    Returns True if a harvest is now running (started here or already running).
+    """
+    if not harvest_enabled():
+        return False
+    state = _harvest_state(service)
+    with state.lock:
+        if state.thread and state.thread.is_alive():
+            return True
+        if state.last_finished and time.monotonic() - state.last_finished < _HARVEST_COOLDOWN_S:
+            return False
+
+        def _worker() -> None:
+            ok = _run_auto_harvest(service, base_url, storage_state, user_agent)
+            with state.lock:
+                state.last_finished = time.monotonic()
+                state.last_result = "live" if ok else "none"
+
+        state.thread = threading.Thread(
+            target=_worker, name=f"atlassian-harvest-{service}", daemon=True
+        )
+        state.thread.start()
+        return True
+
+
+class CookieAuth:
+    """Browser-cookie authentication installed on an existing requests session.
+
+    It loads the service's saved jar into ``session.cookies``, sets the headers
+    Data Center needs for cookie-authenticated writes, and wraps requests so an
+    expired session is detected and refreshed. It never replaces the session,
+    so whatever the session already carries (upstream's SSRF redirect hook,
+    DNS-pinning adapter, retry, rate limit, circuit breaker, proxy and TLS
+    settings) stays in force.
+    """
 
     def __init__(
         self,
+        session: requests.Session,
         service: ServiceName,
         base_url: str,
         config: BrowserAuthConfig | None = None,
         allow_interactive: bool = True,
     ) -> None:
-        super().__init__()
+        self.session = session
         self.service = service
         self.base_url = base_url.rstrip("/")
         self.browser_config = config or BrowserAuthConfig.from_env(service)
-        # When False, this session NEVER launches a browser. It only reads the
-        # saved cookie jar and, on a cache miss or auth failure, raises
-        # AuthRequiredError instead of blocking on interactive_login(). This is
-        # what makes the MCP server safe: an interactive login from inside a
-        # detached, async-dispatched server process is exactly what caused the
-        # server to hang forever. The CLI keeps allow_interactive=True so
-        # `atlassian-cli login` can still open a browser in the foreground.
+        # When False, this session NEVER launches a browser and never harvests
+        # inline. It only reads the saved cookie jar and, on a cache miss or
+        # auth failure, raises AuthRequiredError instead of blocking. That is
+        # what keeps the MCP server from hanging; the CLI keeps True so
+        # `atlassian-cli login` can open a browser in the foreground.
         self.allow_interactive = allow_interactive
-        self.trust_env = False
-        self.headers.update({
+        self._applied_stamp: tuple[int, int] | None = None
+
+        session.trust_env = False
+        session.auth = None
+        session.headers.pop("Authorization", None)
+        session.headers.update({
             "User-Agent": self.browser_config.user_agent,
             # Jira/Confluence Data Center reject cookie-authenticated mutating
             # requests (POST/PUT/DELETE) as XSRF unless both this header AND a
@@ -696,11 +940,10 @@ class BrowserCookieSession(requests.Session):
         try:
             self.refresh_cookies()
         except AuthRequiredError:
-            # Non-interactive mode with no saved session: re-raise so the caller
-            # (e.g. the MCP server) gets an immediate, clear "log in" signal
-            # instead of a half-built session that fails opaquely on first use.
+            # No saved session in non-interactive mode: re-raise so the caller
+            # gets an immediate, clear "log in" signal.
             raise
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.debug("Cookie loading failed for %s", service, exc_info=True)
             print(
                 f"[atlassian-browser-auth] Could not load browser cookies for {service}: {exc}. "
@@ -709,151 +952,251 @@ class BrowserCookieSession(requests.Session):
                 flush=True,
             )
 
+    # -- cookie loading -------------------------------------------------
+    def _apply_jar(self) -> None:
+        path = self.browser_config.storage_state
+        storage_state = _load_storage_state(path)
+        stamp = _jar_stamp(path)
+        foreign = [
+            c for c in storage_state.get("cookies", [])
+            if not _cookie_matches_base_url(c, self.base_url)
+        ]
+        if foreign:
+            # Jars written by older versions held every cookie of the browser
+            # profile. Rewrite them with only this service's cookies.
+            try:
+                save_login_jar(storage_state, path, self.base_url)
+                stamp = _jar_stamp(path)
+            except OSError as exc:
+                logger.debug("Could not prune jar %s: %s", path, exc)
+        _apply_storage_state_cookies(self.session, storage_state, self.base_url)
+        self._applied_stamp = stamp
+
+    def _background_harvest(self) -> bool:
+        return start_background_harvest(
+            self.service,
+            self.base_url,
+            self.browser_config.storage_state,
+            self.browser_config.user_agent,
+        )
+
+    def _harvest_inline(self) -> bool:
+        return _run_auto_harvest(
+            self.service,
+            self.base_url,
+            self.browser_config.storage_state,
+            self.browser_config.user_agent,
+        )
+
+    def _missing_session_error(self, extra: str | None = None) -> AuthRequiredError:
+        """Start a background harvest and build the error the caller raises."""
+        details = []
+        if self.browser_config.storage_state.exists():
+            note = describe_saved_session(self.browser_config.storage_state)
+            if note:
+                details.append(note)
+        if self._background_harvest():
+            details.append(
+                "A search of your installed browsers for a live session is running "
+                "in the background; retrying in a few seconds may already work."
+            )
+        if extra:
+            details.append(extra)
+        return AuthRequiredError(self.service, " ".join(details) or None)
+
     def refresh_cookies(self) -> None:
-        """Reload cookies from storage state, harvesting or logging in if needed.
+        """Load cookies from the saved jar, harvesting or logging in if needed.
 
         Order of preference:
-          1. A valid saved storage-state jar (fast path, no work).
-          2. Auto-harvest: reuse a LIVE session from any installed browser
-             (Arc/Chrome/Brave/...). This opens no window and is bounded, so it
-             runs in BOTH interactive and server (allow_interactive=False) modes
-             — letting the server self-heal silently when a browser has a live
-             session, instead of failing fast on the first missing jar.
-          3. Interactive SSO in a visible browser — ONLY when allow_interactive
-             and harvest found nothing. The server never reaches this branch.
+          1. A valid saved storage-state jar (fast path, cached by mtime).
+          2. Server mode (allow_interactive=False): start a background harvest
+             of installed browsers and raise AuthRequiredError at once. The
+             next call picks up the jar the harvest wrote.
+          3. CLI mode: harvest inline (bounded, no window), then an interactive
+             SSO login in a visible browser.
         """
-        if not self.browser_config.storage_state.exists():
-            # Try harvesting a live session from any browser first (no UI, bounded).
-            if self._try_auto_harvest():
-                storage_state = _load_storage_state(self.browser_config.storage_state)
-                _apply_storage_state_cookies(self, storage_state, self.base_url)
-                return
-            # Non-interactive (server) mode: never open a browser — fail fast
-            # with a clear instruction instead of blocking the caller.
-            if not self.allow_interactive:
-                raise AuthRequiredError(self.service)
-            if not sys.stdin.isatty() and not os.environ.get("DISPLAY") and sys.platform != "darwin":
-                print(
-                    "[atlassian-browser-auth] WARNING: No display available (headless environment). "
-                    "Run `atlassian-cli login` manually or set ATLASSIAN_BROWSER_AUTH_ENABLED=false for token auth.",
-                    file=sys.stderr,
-                    flush=True,
-                )
-                return
-            interactive_login(self.service, config=self.browser_config)
-        if not self.browser_config.storage_state.exists():
+        if self.browser_config.storage_state.exists():
+            self._apply_jar()
             return
-        storage_state = _load_storage_state(self.browser_config.storage_state)
-        _apply_storage_state_cookies(self, storage_state, self.base_url)
+        if not self.allow_interactive:
+            raise self._missing_session_error()
+        if self._harvest_inline():
+            self._apply_jar()
+            return
+        if not sys.stdin.isatty() and not os.environ.get("DISPLAY") and sys.platform != "darwin":
+            print(
+                "[atlassian-browser-auth] WARNING: No display available (headless environment). "
+                "Run `atlassian-cli login` manually or set ATLASSIAN_BROWSER_AUTH_ENABLED=false for token auth.",
+                file=sys.stderr,
+                flush=True,
+            )
+            return
+        interactive_login(self.service, config=self.browser_config)
+        if self.browser_config.storage_state.exists():
+            self._apply_jar()
 
-    def _try_auto_harvest(self) -> bool:
-        """Reuse a live session from any installed browser; write the jar if found.
+    def _reload_if_changed(self) -> bool:
+        """Re-apply the jar if it changed on disk since it was applied."""
+        stamp = _jar_stamp(self.browser_config.storage_state)
+        if stamp is None:
+            return False
+        if stamp == self._applied_stamp:
+            return False
+        self._apply_jar()
+        return True
 
-        Returns True iff a browser yielded an authenticated (HTTP 200) session
-        and its cookies were written to this service's storage-state path. Opens
-        no browser window and is fully bounded, so it is safe in server mode.
-        Controlled by ATLASSIAN_COOKIE_HARVEST (default on); set falsy to skip.
+    # -- requests -------------------------------------------------------
+    @staticmethod
+    def _rejected(response: requests.Response) -> bool:
+        return looks_like_sso_response(response) or response.status_code == 401
+
+    def request(
+        self,
+        send: Any,
+        method: str,
+        url: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> requests.Response:
+        """Send through ``send``; on an SSO page or 401, refresh and maybe retry.
+
+        Only GET, HEAD and OPTIONS are sent again. Any other method gets an
+        AuthRequiredError after the session is refreshed, so a write is never
+        performed twice and a file body is never re-sent empty.
         """
-        if not _env_truthy("ATLASSIAN_COOKIE_HARVEST", True):
-            return False
-        try:
-            # Imported lazily so a harvest-disabled or non-macOS environment never
-            # pays the import cost (and a missing optional dep can't break auth).
-            from cookie_autoauth import auto_harvest
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("auto-harvest unavailable: %s", exc)
-            return False
-        try:
-            res = auto_harvest(
-                self.service,
-                self.base_url,
-                storage_state_path=self.browser_config.storage_state,
-                user_agent=self.browser_config.user_agent,
-            )
-        except Exception as exc:  # noqa: BLE001 - harvest must never break auth
-            logger.debug("auto-harvest error for %s: %s", self.service, exc)
-            return False
-        if res.authenticated:
-            print(
-                f"[atlassian-browser-auth] Reused live {self.service} session from "
-                f"{res.browser}/{res.profile} ({res.cookie_count} cookies) — no login needed.",
-                file=sys.stderr,
-                flush=True,
-            )
-            return True
-        if res.attempts:
-            print(
-                f"[atlassian-browser-auth] No live {self.service} session in any browser "
-                f"({'; '.join(res.attempts)}).",
-                file=sys.stderr,
-                flush=True,
-            )
-        return False
+        retry_on_auth = kwargs.pop("_retry_on_auth", True)
+        response = send(method, url, *args, **kwargs)
+        if not retry_on_auth or not self._rejected(response):
+            return response
+        response.close()
+        replayable = str(method).upper() in _REPLAYABLE_METHODS
+
+        def _resend() -> requests.Response | None:
+            if not replayable:
+                return None
+            retest = send(method, url, *args, **kwargs)
+            if not self._rejected(retest):
+                return retest
+            retest.close()
+            return None
+
+        not_replayed = (
+            f"The {str(method).upper()} request was not sent again because it may "
+            "change data; run it again once signed in."
+        )
+
+        with _LOGIN_LOCK:
+            # Another process (`atlassian-cli login`, a harvest) may have written
+            # a fresh jar since this one was loaded.
+            if self._reload_if_changed():
+                retest = _resend()
+                if retest is not None:
+                    return retest
+                if not replayable:
+                    raise AuthRequiredError(
+                        self.service,
+                        "The saved session was reloaded from disk. " + not_replayed,
+                    )
+
+            if not self.allow_interactive:
+                raise self._missing_session_error(None if replayable else not_replayed)
+
+            # CLI: harvest inline, then a visible login, reusing the browser
+            # profile. The profile is never deleted here: it holds the user's
+            # long-lived SSO session. Only the short-lived jar is refreshed.
+            if self._harvest_inline():
+                self._apply_jar()
+                if not replayable:
+                    raise AuthRequiredError(
+                        self.service,
+                        "The session was restored from your browser. " + not_replayed,
+                    )
+                retest = _resend()
+                if retest is not None:
+                    return retest
+            if self.browser_config.storage_state.exists():
+                self.browser_config.storage_state.unlink()
+            interactive_login(self.service, config=self.browser_config)
+            if self.browser_config.storage_state.exists():
+                self._apply_jar()
+            retest = _resend()
+            if retest is not None:
+                return retest
+        raise AuthRequiredError(self.service, None if replayable else not_replayed)
+
+
+class BrowserCookieSession(requests.Session):
+    """A requests session authenticated with the saved browser cookies (CLI use)."""
+
+    def __init__(
+        self,
+        service: ServiceName,
+        base_url: str,
+        config: BrowserAuthConfig | None = None,
+        allow_interactive: bool = True,
+    ) -> None:
+        super().__init__()
+        self.cookie_auth = CookieAuth(
+            self,
+            service,
+            base_url,
+            config=config,
+            allow_interactive=allow_interactive,
+        )
+
+    @property
+    def service(self) -> ServiceName:
+        return self.cookie_auth.service
+
+    @property
+    def base_url(self) -> str:
+        return self.cookie_auth.base_url
+
+    @property
+    def browser_config(self) -> BrowserAuthConfig:
+        return self.cookie_auth.browser_config
+
+    @property
+    def allow_interactive(self) -> bool:
+        return self.cookie_auth.allow_interactive
+
+    def refresh_cookies(self) -> None:
+        self.cookie_auth.refresh_cookies()
 
     def request(self, method: str, url: str, *args: Any, **kwargs: Any) -> requests.Response:
-        """Make a request, automatically re-authenticating on SSO redirects or 401s."""
-        retry_on_auth = kwargs.pop("_retry_on_auth", True)
-        response = super().request(method, url, *args, **kwargs)
-        needs_reauth = looks_like_sso_response(response) or response.status_code == 401
-        if retry_on_auth and needs_reauth:
-            response.close()
-            # Non-interactive (server) mode: the cookies on disk may have been
-            # refreshed by a separate `atlassian-cli login`, so reload them once
-            # and retry — but NEVER open a browser here. If still unauthorized,
-            # raise so the caller can tell the user to log in out-of-band.
-            if not self.allow_interactive:
-                with _LOGIN_LOCK:
-                    self.refresh_cookies()  # reload from disk; raises if absent
-                    retest = super().request(method, url, *args, **kwargs)
-                    if looks_like_sso_response(retest) or retest.status_code == 401:
-                        # Disk jar is also stale. Try harvesting a fresh live
-                        # session from another browser (bounded, no UI) before
-                        # giving up — this is how the server self-heals when the
-                        # user re-authed in their normal browser.
-                        retest.close()
-                        if self._try_auto_harvest():
-                            storage_state = _load_storage_state(
-                                self.browser_config.storage_state
-                            )
-                            _apply_storage_state_cookies(self, storage_state, self.base_url)
-                            retest = super().request(method, url, *args, **kwargs)
-                if not looks_like_sso_response(retest) and retest.status_code != 401:
-                    return retest
-                retest.close()
-                raise AuthRequiredError(self.service)
-            with _LOGIN_LOCK:
-                self.refresh_cookies()
-                retest = super().request(method, url, *args, **kwargs)
-                if not looks_like_sso_response(retest) and retest.status_code != 401:
-                    return retest
-                retest.close()
-                # Disk jar stale too — try harvesting a live session from another
-                # browser before opening a visible login window.
-                if self._try_auto_harvest():
-                    storage_state = _load_storage_state(self.browser_config.storage_state)
-                    _apply_storage_state_cookies(self, storage_state, self.base_url)
-                    retest2 = super().request(method, url, *args, **kwargs)
-                    if not looks_like_sso_response(retest2) and retest2.status_code != 401:
-                        return retest2
-                    retest2.close()
-                # Re-auth interactively, REUSING the existing browser profile.
-                # We deliberately do NOT delete profile_dir here: the persistent
-                # Chrome profile holds the user's long-lived SSO/MFA session (and,
-                # when seeded, their password manager extension login), so wiping
-                # it on a transient 401 is what caused sessions to be silently
-                # lost. Only the short-lived storage-state cache is refreshed below.
-                if self.browser_config.storage_state.exists():
-                    self.browser_config.storage_state.unlink()
-                interactive_login(self.service, config=self.browser_config)
-                self.refresh_cookies()
-            return self.request(
-                method,
-                url,
-                *args,
-                _retry_on_auth=False,
-                **kwargs,
-            )
-        return response
+        """Make a request, re-authenticating on SSO redirects or 401s."""
+        return self.cookie_auth.request(super().request, method, url, *args, **kwargs)
+
+
+def install_browser_auth(
+    session: requests.Session,
+    service: ServiceName,
+    base_url: str,
+    config: BrowserAuthConfig | None = None,
+    allow_interactive: bool = False,
+) -> CookieAuth:
+    """Authenticate an existing session with the browser cookies, in place.
+
+    Used by the MCP server on the session upstream's client constructor built,
+    so every hardening step upstream applied to that session is kept. The
+    session's own ``request`` (which may be a PAC/WPAD session's) stays the
+    transport; this only wraps it with the re-authentication logic.
+    """
+    auth = CookieAuth(
+        session,
+        service,
+        base_url,
+        config=config,
+        allow_interactive=allow_interactive,
+    )
+    transport = session.request
+
+    def request(method: str, url: str, *args: Any, **kwargs: Any) -> requests.Response:
+        return auth.request(transport, method, url, *args, **kwargs)
+
+    session.request = request  # type: ignore[method-assign]
+    session.atlassian_cookie_auth = auth  # type: ignore[attr-defined]
+    return auth
 
 
 def create_browser_session(
@@ -864,9 +1207,9 @@ def create_browser_session(
 ) -> BrowserCookieSession:
     """Create a BrowserCookieSession for the given Atlassian service.
 
-    Pass allow_interactive=False for server contexts (e.g. the MCP server) so
-    the session reads saved cookies but never opens a browser — it raises
-    AuthRequiredError on a cache miss instead of hanging.
+    Pass allow_interactive=False for server contexts so the session reads saved
+    cookies but never opens a browser; it raises AuthRequiredError on a cache
+    miss instead of hanging.
     """
     return BrowserCookieSession(
         service=service,
