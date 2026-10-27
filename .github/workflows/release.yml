@@ -71,7 +71,10 @@ jobs:
         with:
           name: dist
           path: dist/
-      - uses: pypa/gh-action-pypi-publish@aef6c9b6e301dc803e1bc9133e9ce67ae9b0906b # v1.14.3
+      # Pin the COMMIT of the release tag, never the annotated tag object: the
+      # action pulls ghcr.io/pypa/gh-action-pypi-publish:<pinned sha> and only
+      # commit shas have an image (the v1.4.1 run failed on the tag object sha).
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
           # A version already on PyPI is skipped, so a failed release can be
           # re-run after the missing piece is fixed.
