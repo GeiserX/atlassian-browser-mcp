@@ -44,7 +44,9 @@ class AuthRequiredError(RuntimeError):
         super().__init__(message)
 
 
-_LOGIN_LOCK = threading.Lock()
+# Reentrant: CookieAuth.request holds it while calling interactive_login, which
+# takes it again to serialize profile seeding.
+_LOGIN_LOCK = threading.RLock()
 _USERNAME_SELECTORS = [
     'input[name="identifier"]',
     'input[name="username"]',
@@ -1062,6 +1064,11 @@ class CookieAuth:
             # long-lived SSO session. Only the short-lived jar is refreshed.
             if self._harvest_inline():
                 self._apply_jar()
+                if not replayable:
+                    raise AuthRequiredError(
+                        self.service,
+                        "The session was restored from your browser. " + not_replayed,
+                    )
                 retest = _resend()
                 if retest is not None:
                     return retest

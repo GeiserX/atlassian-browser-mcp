@@ -534,11 +534,18 @@ def _service_status(service: Literal["jira", "confluence"], check_live: bool) ->
         )
 
     now = time.time()
-    cookies: list[dict[str, Any]] = []
     try:
         cookies = list(_load_storage_state(jar).get("cookies", []))
-    except RuntimeError:
-        pass
+        jar_mtime = jar.stat().st_mtime
+    except (RuntimeError, OSError):
+        # Corrupt jars are removed by the loader; either way there is no usable jar.
+        return ServiceAuthStatus(
+            configured=True,
+            ready=False,
+            jar_exists=jar.exists(),
+            next_step="The saved session could not be read. " + login,
+            **common,
+        )
     expiries = [
         float(c["expires"]) for c in cookies
         if c.get("expires") not in (None, -1, 0)
@@ -549,7 +556,7 @@ def _service_status(service: Literal["jira", "confluence"], check_live: bool) ->
         configured=True,
         ready=True,
         jar_exists=True,
-        jar_age_seconds=int(now - jar.stat().st_mtime),
+        jar_age_seconds=int(now - jar_mtime),
         cookie_count=len(cookies) - expired,
         expired_cookie_count=expired,
         earliest_expiry=(

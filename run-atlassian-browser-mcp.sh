@@ -24,11 +24,15 @@ bounded() {
   fi
 }
 
-# Check the package and its deps are importable, NOT an exact version.
-# Pinning an exact version here meant every version bump forced a reinstall
-# on startup (slow, network-dependent: a hang vector). We only install when
-# something is actually missing/broken.
-if [[ ! -x "${PYTHON_BIN}" ]] || ! "${PYTHON_BIN}" - <<'PY' >/dev/null 2>&1
+# Install only when uv.lock changed since the last install or something is
+# missing/broken, never on every start (slow, network-dependent: a hang
+# vector). The stamp is the checksum of the uv.lock that was installed, so a
+# pulled security bump is picked up on the next start.
+LOCK_STAMP="${VENV_DIR}/.uv-lock-installed"
+lock_sum="$(cksum < "${ROOT_DIR}/uv.lock")"
+if [[ ! -x "${PYTHON_BIN}" ]] \
+  || [[ "$(cat "${LOCK_STAMP}" 2>/dev/null)" != "${lock_sum}" ]] \
+  || ! "${PYTHON_BIN}" - <<'PY' >/dev/null 2>&1
 import importlib.metadata as m
 m.version("atlassian-browser-mcp")  # raises if not installed
 import mcp_atlassian, playwright, requests  # noqa: F401
@@ -37,6 +41,7 @@ then
   # Install exactly the versions in uv.lock (no fresh resolution at startup).
   UV_PROJECT_ENVIRONMENT="${VENV_DIR}" bounded uv sync --frozen --project "${ROOT_DIR}" >&2 \
     || { echo "atlassian-browser-mcp: dependency install failed or timed out" >&2; exit 1; }
+  printf '%s\n' "${lock_sum}" > "${LOCK_STAMP}"
 fi
 
 # No browser download here: the server never opens a browser. `atlassian-cli

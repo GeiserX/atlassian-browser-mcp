@@ -130,6 +130,69 @@ def test_write_is_never_sent_twice(server_auth, method):
     assert auth.session.cookies.get("JSESSIONID") == "fresh"
 
 
+# ---- CLI mode: inline harvest, then a visible login ----------------------------
+class _AlwaysRejected:
+    def __init__(self):
+        self.calls: list[str] = []
+
+    def __call__(self, method, url, *args, **kwargs):
+        self.calls.append(method)
+        return _response(401)
+
+
+@pytest.fixture
+def cli_auth(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATLASSIAN_STORAGE_STATE", str(tmp_path / "state.json"))
+    monkeypatch.setenv("ATLASSIAN_BROWSER_PROFILE_DIR", str(tmp_path / "profile"))
+    jar = write_jar(tmp_path / "state-jira.json", [cookie("JSESSIONID", "old", "jira.example.com")])
+    return aba.CookieAuth(requests.Session(), "jira", BASE, allow_interactive=True), jar
+
+
+def test_cli_relogin_reaches_the_browser_instead_of_deadlocking(cli_auth, monkeypatch):
+    auth, _jar = cli_auth
+    monkeypatch.setattr(aba.CookieAuth, "_harvest_inline", lambda self: False)
+
+    class _ReachedLogin(Exception):
+        pass
+
+    def seed(_cfg):  # first step inside interactive_login's own lock
+        raise _ReachedLogin
+
+    monkeypatch.setattr(aba, "_seed_profile_if_needed", seed)
+    outcome: list[BaseException] = []
+
+    def run():
+        try:
+            auth.request(_AlwaysRejected(), "GET", f"{BASE}/rest/api/2/myself")
+        except BaseException as exc:  # noqa: BLE001 - the test inspects it
+            outcome.append(exc)
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(5)
+    assert not worker.is_alive(), "re-login blocked on the login lock"
+    assert outcome and isinstance(outcome[0], _ReachedLogin)
+
+
+def test_write_after_inline_harvest_raises_without_opening_a_login(cli_auth, monkeypatch):
+    auth, jar = cli_auth
+
+    def harvest(self):
+        write_jar(jar, [cookie("JSESSIONID", "harvested", "jira.example.com")])
+        return True
+
+    logins: list[str] = []
+    monkeypatch.setattr(aba.CookieAuth, "_harvest_inline", harvest)
+    monkeypatch.setattr(aba, "interactive_login", lambda service, **kw: logins.append(service))
+    send = _AlwaysRejected()
+    with pytest.raises(aba.AuthRequiredError, match="not sent again"):
+        auth.request(send, "POST", f"{BASE}/rest/api/2/issue")
+    assert send.calls == ["POST"]
+    assert logins == []
+    assert jar.exists()
+    assert auth.session.cookies.get("JSESSIONID") == "harvested"
+
+
 # ---- server mode never harvests on the caller's thread ------------------------
 def test_missing_jar_in_server_mode_fails_fast_and_harvests_in_background(tmp_path, monkeypatch):
     monkeypatch.setenv("ATLASSIAN_STORAGE_STATE", str(tmp_path / "state.json"))

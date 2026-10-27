@@ -156,6 +156,16 @@ def test_auth_status_without_a_jar_says_how_to_log_in(fake_atlassian):
     assert "login jira" in services["jira"]["next_step"]
 
 
+def test_auth_status_survives_a_corrupt_jar(fake_atlassian):
+    _base, _seen, tmp = fake_atlassian
+    (tmp / "state-jira.json").write_text("{not json")
+    result = _call("atlassian_auth_status", {"service": "jira", "check_live": False})
+    assert not result.is_error, result.content
+    (jira,) = result.structured_content["services"]
+    assert jira["ready"] is False
+    assert "login jira" in jira["next_step"]
+
+
 # ---- startup guards ------------------------------------------------------------
 def test_main_refuses_any_transport_but_stdio(monkeypatch):
     calls = []

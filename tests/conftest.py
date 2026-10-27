@@ -72,7 +72,8 @@ class _FakeAtlassian(http.server.BaseHTTPRequestHandler):
         elif self.path.startswith("/rest/api/2/myself"):
             self._reply(200, {"name": "tester"}) if authed else self._reply(401)
         elif self.path.startswith("/rest/api/user/current"):
-            self._reply(200, {"type": "known", "username": "tester"}) if authed else self._reply(200, {"type": "anonymous"})
+            user = {"type": "known", "username": "tester"} if authed else {"type": "anonymous"}
+            self._reply(200, user)
         else:
             self._reply(404)
 
