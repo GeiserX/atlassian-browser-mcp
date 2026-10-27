@@ -31,7 +31,7 @@ UV_PROJECT_ENVIRONMENT=.venv-atlassian-browser uv sync --frozen   # installs the
 JIRA_URL=https://jira.example.com CONFLUENCE_URL=https://confluence.example.com ./atlassian-cli login jira   # once per service
 ```
 
-Needs Python 3.11+, [uv](https://docs.astral.sh/uv/), Google Chrome and a display for the login. The server only reads the saved cookies; when they expire it returns an `AuthRequiredError` asking you to run the login again. Seeding from Chrome and every setting are in [Getting started](docs/getting-started.md).
+Needs Python 3.11+, [uv](https://docs.astral.sh/uv/), Google Chrome and a display for the login. The server never opens a browser window. It reads the saved cookies; when they are missing or expired it returns an `AuthRequiredError` asking you to run the login again, and on macOS it also looks for a live session in your installed browsers in the background, so a retry a few seconds later may already work. Seeding from Chrome and every setting are in [Getting started](docs/getting-started.md).
 
 ## Add it to your client
 

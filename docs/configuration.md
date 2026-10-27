@@ -1,6 +1,6 @@
 # Configuration
 
-All settings are environment variables, read by both the CLI and the server.
+All settings are environment variables. The CLI and the server read the same ones, except the last four rows (`TOOLSETS`, `READ_ONLY_MODE`, `ENABLED_TOOLS`, `FASTMCP_TRANSPORT`), which only the server uses.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
