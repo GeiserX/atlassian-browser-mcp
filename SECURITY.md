@@ -32,7 +32,7 @@ Only the latest version receives security updates. We recommend always running t
 
 ### Authentication
 
-- **Browser-based SSO.** No API tokens or passwords in config. With browser auth on (the default) the server sends your browser session cookies, never an `Authorization` header. `ATLASSIAN_BROWSER_AUTH_ENABLED=false` hands authentication back to upstream's token settings.
+- **Browser-based SSO.** No API tokens or passwords in config. With browser auth on (the default) the server sends your browser session cookies and no `Authorization` header of its own. A header you set yourself through `JIRA_CUSTOM_HEADERS` or `CONFLUENCE_CUSTOM_HEADERS`, `Authorization` included, is still sent. `ATLASSIAN_BROWSER_AUTH_ENABLED=false` hands authentication back to upstream's token settings.
 - **Upstream hardening kept.** The server lets upstream mcp-atlassian build each Jira and Confluence client and only adds the cookies afterwards, so upstream's SSRF redirect check, DNS-rebinding pinning, retry, rate-limit, proxy and TLS settings all apply. A test compares the patched session with upstream's own.
 - **stdio only.** The server refuses to start on any other transport, because over HTTP any caller would be served with your browser session.
 - **No replayed writes.** After an expired session only GET, HEAD and OPTIONS are retried; a write is never sent twice.
