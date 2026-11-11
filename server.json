@@ -9,13 +9,13 @@
     "source": "github",
     "id": "1202791063"
   },
-  "version": "1.4.1",
+  "version": "1.5.0",
   "packages": [
     {
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "atlassian-browser-mcp",
-      "version": "1.4.1",
+      "version": "1.5.0",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"
@@ -54,6 +54,13 @@
           "description": "Set to false to skip the browser session and use upstream token auth instead",
           "isRequired": false,
           "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "MCP_ATLASSIAN_FILES_DIR",
+          "description": "The only folder file tools read from (content_file, attachment uploads). Defaults to ~/.atlassian-browser-mcp/files; a filesystem root or a folder that contains your home directory is refused. Hold only files you are willing to publish, never this server's checkout or cookie jars",
+          "isRequired": false,
+          "format": "filepath",
           "isSecret": false
         },
         {

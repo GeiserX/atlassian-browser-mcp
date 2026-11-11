@@ -12,6 +12,9 @@ resolution-markers = [
     "python_full_version < '3.11.5' and sys_platform != 'win32'",
 ]
 
+[manifest]
+overrides = [{ name = "cryptography", specifier = ">=50.0.0" }]
+
 [[package]]
 name = "aiofile"
 version = "3.12.3"
@@ -57,7 +60,7 @@ wheels = [
 
 [[package]]
 name = "atlassian-browser-mcp"
-version = "1.4.1"
+version = "1.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
@@ -74,7 +77,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography", specifier = ">=44.0.1" },
-    { name = "mcp-atlassian", specifier = ">=0.23.1,<1.0.0" },
+    { name = "mcp-atlassian", specifier = ">=0.24.1,<1.0.0" },
     { name = "playwright", specifier = ">=1.58.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "requests", specifier = ">=2.33.1" },
@@ -1244,7 +1247,7 @@ wheels = [
 
 [[package]]
 name = "mcp-atlassian"
-version = "0.23.1"
+version = "0.24.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1252,6 +1255,7 @@ dependencies = [
     { name = "beautifulsoup4" },
     { name = "cachetools" },
     { name = "click" },
+    { name = "cryptography" },
     { name = "fakeredis" },
     { name = "fastmcp" },
     { name = "httpx" },
@@ -1275,9 +1279,9 @@ dependencies = [
     { name = "urllib3" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d6/95/0447fe71406c95f7bbc2d0c762ea83b473c5e7b12f09caa47867068dcf0c/mcp_atlassian-0.23.1.tar.gz", hash = "sha256:6b57391928887f5334fe854073b09e3a49bb7dae0d55a1b1276f4d910607a0f1", size = 999719, upload-time = "2026-08-19T00:38:31.083Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/60/e7/853da9f38fd0f4d9d3193094ed1ca73a5c44bc27de3db6035191bd16a671/mcp_atlassian-0.24.1.tar.gz", hash = "sha256:15de5c115c85e51518086f2c0160af820d8e139cf2ae0f25e9e4c11c4d8dddc9", size = 1154858, upload-time = "2026-11-08T15:23:25.155Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/50/74/a95465af44260561a01eff12d6f5da7e74e61bba3d758c5b6e0af9dc020e/mcp_atlassian-0.23.1-py3-none-any.whl", hash = "sha256:2c00820dabb6d39d9356025a52689cbc411ec4f7d7dd87a64589099084da471a", size = 376946, upload-time = "2026-08-19T00:38:29.82Z" },
+    { url = "https://files.pythonhosted.org/packages/0f/12/1c54b69d065df5fc8731b0ed4077d7dc291f40755171db7606b5969417ab/mcp_atlassian-0.24.1-py3-none-any.whl", hash = "sha256:a9adacc871c1d9d64c51213c4bd3d0d6385c4a727c4761ec88f326c83c3b48ac", size = 437858, upload-time = "2026-11-08T15:23:23.725Z" },
 ]
 
 [[package]]
