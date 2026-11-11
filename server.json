@@ -58,7 +58,7 @@
         },
         {
           "name": "MCP_ATLASSIAN_FILES_DIR",
-          "description": "The only folder file tools read from and write to (content_file, attachment upload and download). Defaults to ~/.atlassian-browser-mcp/files; a filesystem root or your home directory is refused",
+          "description": "The only folder file tools read from (content_file, attachment uploads). Defaults to ~/.atlassian-browser-mcp/files; a filesystem root or a folder that contains your home directory is refused. Hold only files you are willing to publish, never this server's checkout or cookie jars",
           "isRequired": false,
           "format": "filepath",
           "isSecret": false

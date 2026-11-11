@@ -106,7 +106,7 @@ env = { JIRA_URL = "https://jira.example.com", CONFLUENCE_URL = "https://conflue
 
 Write tools act as you, with your SSO identity. To hide all of them (create, update, delete, transition, upload, restrictions), set `READ_ONLY_MODE=true` in the server's `env`. Upstream enforces it when listing and when calling. `ENABLED_TOOLS` (a comma-separated allow-list of tool names) and `TOOLSETS` narrow the list further; see [Configuration](docs/configuration.md).
 
-File tools (Confluence `content_file`, attachment upload and download) only read and write inside `MCP_ATLASSIAN_FILES_DIR`, by default `~/.atlassian-browser-mcp/files`. To upload files from a workspace, set it to that folder.
+File tools (Confluence `content_file`, attachment uploads) only read files inside `MCP_ATLASSIAN_FILES_DIR`, by default `~/.atlassian-browser-mcp/files`. To upload files from a workspace, set it to that folder. The folder must hold only files you are willing to publish: never this server's checkout or its cookie jars (`.atlassian-browser-*`).
 
 ## Tools
 

@@ -21,7 +21,7 @@ All settings are environment variables. The CLI and the server read the same one
 | `ATLASSIAN_JIRA_LOGIN_URL` | `{JIRA_URL}/secure/Dashboard.jspa` | Override the Jira login entry point URL |
 | `ATLASSIAN_CONFLUENCE_LOGIN_URL` | `{CONFLUENCE_URL}` | Override the Confluence login entry point URL |
 | `ATLASSIAN_BROWSER_USER_AGENT` | _(Chrome 136)_ | Custom User-Agent string for API requests |
-| `MCP_ATLASSIAN_FILES_DIR` | `~/.atlassian-browser-mcp/files` | The only folder file tools read from and write to: Confluence `content_file`, attachment uploads and attachment downloads. Relative paths resolve inside it. The default folder is created with mode 0700. The server refuses to start when this is a filesystem root or contains your home directory. Set it to your workspace folder to upload files from there |
+| `MCP_ATLASSIAN_FILES_DIR` | `~/.atlassian-browser-mcp/files` | The only folder file tools read from: Confluence `content_file` and attachment uploads. Relative paths resolve inside it. The default folder is created with mode 0700. The server refuses to start when this is a filesystem root or contains your home directory. Set it to your workspace folder to upload files from there. It must hold only files you are willing to publish: never this server's checkout or its cookie jars (`.atlassian-browser-*`) |
 | `TOOLSETS` | `all` | Which upstream toolsets to enable (`all`, `default` for upstream's six core sets, or a comma-separated list) |
 | `READ_ONLY_MODE` | `false` | Upstream switch: `true` hides every write tool (create, update, delete, transition, upload, restrictions) at listing and at call time |
 | `ENABLED_TOOLS` | _(all)_ | Upstream switch: comma-separated allow-list of tool names, e.g. `jira_get_issue,jira_search` |

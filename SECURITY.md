@@ -35,7 +35,7 @@ Only the latest version receives security updates. We recommend always running t
 - **Browser-based SSO.** No API tokens or passwords in config. With browser auth on (the default) the server sends your browser session cookies and no `Authorization` header of its own. A header you set yourself through `JIRA_CUSTOM_HEADERS` or `CONFLUENCE_CUSTOM_HEADERS`, `Authorization` included, is still sent. `ATLASSIAN_BROWSER_AUTH_ENABLED=false` hands authentication back to upstream's token settings.
 - **Upstream hardening kept.** The server lets upstream mcp-atlassian build each Jira and Confluence client and only adds the cookies afterwards, so upstream's SSRF redirect check, DNS-rebinding pinning, retry, rate-limit, proxy and TLS settings all apply. A test compares the patched session with upstream's own.
 - **stdio only.** The server refuses to start on any other transport, because over HTTP any caller would be served with your browser session.
-- **File tools stay in one folder.** Confluence `content_file`, attachment uploads and attachment downloads only read and write inside `MCP_ATLASSIAN_FILES_DIR`, by default `~/.atlassian-browser-mcp/files` (mode 0700). The directory the MCP client starts the server in is never used, so text in Jira or Confluence cannot make an agent upload your SSH keys or write a file elsewhere. The server refuses to start when the folder is a filesystem root or contains your home directory.
+- **File tools stay in one folder.** Confluence `content_file` and attachment uploads only read files inside `MCP_ATLASSIAN_FILES_DIR`, by default `~/.atlassian-browser-mcp/files` (mode 0700). The directory the MCP client starts the server in is never used, so text in Jira or Confluence cannot make an agent upload your SSH keys. The server refuses to start when the folder is a filesystem root or contains your home directory.
 - **No replayed writes.** After an expired session only GET, HEAD and OPTIONS are retried; a write is never sent twice.
 
 ### Data on disk
@@ -52,7 +52,7 @@ With `ATLASSIAN_COOKIE_HARVEST` on (the default), a missing or expired session m
 1. **Never commit `.atlassian-browser-*` files.** They contain session cookies (the repo's `.gitignore` covers them).
 2. **Keep the browser profile directory private.** It may contain cached credentials.
 3. **Hide write tools** with `READ_ONLY_MODE=true` if your agents only need to read.
-4. **Keep the files folder small.** Point `MCP_ATLASSIAN_FILES_DIR` at a folder that holds only files you are willing to publish, never your home directory.
+4. **Keep the files folder small.** Point `MCP_ATLASSIAN_FILES_DIR` at a folder that holds only files you are willing to publish. Never use your home directory, and never a folder that holds this server's checkout or its cookie jars (`.atlassian-browser-*`).
 5. **Keep updated.** Run the latest version of both this wrapper and `mcp-atlassian`.
 
 ## Contact
