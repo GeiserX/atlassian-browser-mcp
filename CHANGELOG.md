@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.5.0 - 2026-11-11
+
+### Security
+
+- File tools no longer reach files outside a dedicated folder (GHSA-gv82-cfv8-5p3p). Confluence `content_file`, the Jira and Confluence attachment uploads and the attachment downloads used to accept any path under the directory the MCP client started the server in, often `/` or your home directory. Text in a Jira issue or Confluence page could then steer an agent into publishing a local file, such as an SSH key, or writing a download anywhere there. Now they only read and write inside `MCP_ATLASSIAN_FILES_DIR`, by default `~/.atlassian-browser-mcp/files` (created with mode 0700). The server refuses to start when that folder is a filesystem root or contains your home directory. Reported by @Gal3m.
+- Requires mcp-atlassian 0.24.1, the first release that honours `MCP_ATLASSIAN_FILES_DIR` on stdio.
+
+### Changed
+
+- A `content_file` or attachment path relative to the launch directory no longer works. Relative paths now resolve inside the files folder. To use files from a workspace, set `MCP_ATLASSIAN_FILES_DIR` to that folder.
+
 ## 1.4.1 - 2026-10-27
 
 ### Added
