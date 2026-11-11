@@ -86,6 +86,7 @@ from mcp_atlassian.jira.users import UsersMixin  # noqa: E402
 from mcp_atlassian.servers.confluence import confluence_mcp  # noqa: E402
 from mcp_atlassian.servers.jira import jira_mcp  # noqa: E402
 from mcp_atlassian.servers.main import main_mcp  # noqa: E402
+from mcp_atlassian.utils.io import validate_safe_path  # noqa: E402
 
 logger = logging.getLogger("atlassian-browser-mcp-full")
 
@@ -118,6 +119,16 @@ def assert_upstream_compatibility() -> None:
             ["self", "method", "endpoint", "data"],
         ),
     ]
+    # The file boundary only holds if upstream reads MCP_ATLASSIAN_FILES_DIR
+    # (0.24.1 and later). Older releases confine paths to the working directory.
+    files_root = validate_safe_path(".")
+    if files_root != Path(os.environ[FILES_DIR_ENV]):
+        raise RuntimeError(
+            f"mcp-atlassian {current_version} confines file tools to {files_root}, "
+            f"not to {FILES_DIR_ENV}={os.environ[FILES_DIR_ENV]}. "
+            "Install mcp-atlassian 0.24.1 or later."
+        )
+
     for label, function, expected_params in expected_signatures:
         actual_params = list(inspect.signature(function).parameters)
         if actual_params[: len(expected_params)] != expected_params:
@@ -704,16 +715,47 @@ def _prepare_files_dir() -> Path:
     """
     root = Path(os.environ[FILES_DIR_ENV])
     home = Path.home().resolve(strict=False)
-    if root == Path(root.anchor) or home.is_relative_to(root):
+    if _is_wide(root, home):
         raise RuntimeError(
             f"{FILES_DIR_ENV}={root} is a filesystem root or contains your home "
             "directory, so file tools could read and overwrite any file there. "
             "Point it at a dedicated folder, such as your workspace."
         )
     if root == default_files_dir().resolve(strict=False):
-        root.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        root.mkdir(mode=0o700, exist_ok=True)
+        try:
+            root.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            root.mkdir(mode=0o700, exist_ok=True)
+        except OSError as exc:
+            # File tools then fail cleanly; every other tool still works.
+            logger.warning(
+                "Cannot create %s (%s). Set %s to a writable dedicated folder "
+                "to use file tools.", root, exc.strerror, FILES_DIR_ENV,
+            )
     return root
+
+
+def _same_file(a: Path, b: Path) -> bool:
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
+def _is_wide(root: Path, home: Path) -> bool:
+    """True when ``root`` is a filesystem root, the home directory or holds it.
+
+    Compared by file identity as well as by name, so a case variant on a
+    case-insensitive disk or a firmlink such as /System/Volumes/Data still
+    counts.
+    """
+    if root == Path(root.anchor) or home.is_relative_to(root):
+        return True
+    if _same_file(root, Path(root.anchor)):
+        return True
+    return any(
+        _same_file(root.joinpath(*home.parts[i:]), home)
+        for i in range(1, len(home.parts) + 1)
+    )
 
 
 def main() -> None:

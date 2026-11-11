@@ -157,6 +157,44 @@ def test_root_or_home_is_refused_at_startup(home, monkeypatch, value):
         _start(monkeypatch, Path("/"))
 
 
+def _other_spellings(home: Path) -> list[str]:
+    """Names for home or a folder holding it that differ from it as strings."""
+    names = [str(home).upper(), str(home.parent).swapcase()]
+    firmlink = Path("/System/Volumes/Data")
+    names += [str(firmlink) + str(home), str(firmlink)]
+    return [n for n in names if os.path.exists(n) and n != str(home)]
+
+
+def test_other_spellings_of_home_are_refused(home, monkeypatch):
+    """A case variant (case-insensitive disk) or a firmlink names the same folder."""
+    names = _other_spellings(home)
+    if not names:
+        pytest.skip("case-sensitive disk and no /System/Volumes/Data firmlink")
+    for value in names:
+        monkeypatch.setenv(FILES_DIR_ENV, value)
+        with pytest.raises(RuntimeError, match=FILES_DIR_ENV):
+            _start(monkeypatch, Path("/"))
+
+
+def test_upstream_that_ignores_the_folder_is_refused(home, monkeypatch):
+    """An upstream that still confines paths to the cwd (0.23.x) must not start."""
+    monkeypatch.setattr(srv, "validate_safe_path", lambda p: (Path.cwd() / p).resolve())
+    with pytest.raises(RuntimeError, match=FILES_DIR_ENV):
+        _start(monkeypatch, Path("/"))
+
+
+def test_unwritable_home_still_starts(home, monkeypatch, caplog):
+    """Without a writable home the file tools fail; the server still starts."""
+    home.chmod(0o555)
+    try:
+        root = _start(monkeypatch, Path("/"))
+    finally:
+        home.chmod(0o755)
+    assert root == home / ".atlassian-browser-mcp" / "files"
+    assert not root.exists()
+    assert FILES_DIR_ENV in caplog.text
+
+
 def test_boundary_is_set_on_import_before_main(home):
     """Importing the module is enough: no upstream tool can run with the cwd as root."""
     script = (
