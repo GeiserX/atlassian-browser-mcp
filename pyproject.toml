@@ -48,5 +48,11 @@ py-modules = [
     "cookie_autoauth",
 ]
 
+[tool.uv]
+# mcp-atlassian 0.24.1 caps cryptography below 47 but never imports it. 46.x
+# has published advisories fixed in 50.0.0, so the lock overrides the cap.
+# This covers the lock only; uvx and pip installs follow upstream's cap.
+override-dependencies = ["cryptography>=50.0.0"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
