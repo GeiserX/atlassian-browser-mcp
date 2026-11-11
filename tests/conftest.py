@@ -23,6 +23,8 @@ os.environ.setdefault("JIRA_URL", "https://jira.example.com")
 os.environ.setdefault("CONFLUENCE_URL", "https://confluence.example.com")
 os.environ["ATLASSIAN_COOKIE_HARVEST"] = "0"
 os.environ["ATLASSIAN_STORAGE_STATE"] = str(_JAR_DIR / "state.json")
+# Keep main() from creating the default file folder in the real home directory.
+os.environ["MCP_ATLASSIAN_FILES_DIR"] = str(_JAR_DIR / "files")
 os.environ.pop("FASTMCP_TRANSPORT", None)
 
 

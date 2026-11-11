@@ -19,7 +19,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
 ]
 dependencies = [
-    "mcp-atlassian>=0.23.1,<1.0.0",
+    "mcp-atlassian>=0.24.1,<1.0.0",
     "playwright>=1.58.0",
     "requests>=2.33.1",
     # 44.0.1 carries the fixes for CVE-2024-26130 and the bundled-OpenSSL
