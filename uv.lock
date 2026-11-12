@@ -77,7 +77,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography", specifier = ">=44.0.1" },
-    { name = "mcp-atlassian", specifier = ">=0.24.1,<1.0.0" },
+    { name = "mcp-atlassian", specifier = ">=0.24.3,<1.0.0" },
     { name = "playwright", specifier = ">=1.58.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "requests", specifier = ">=2.33.1" },
@@ -1247,7 +1247,7 @@ wheels = [
 
 [[package]]
 name = "mcp-atlassian"
-version = "0.24.1"
+version = "0.24.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1279,9 +1279,9 @@ dependencies = [
     { name = "urllib3" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/60/e7/853da9f38fd0f4d9d3193094ed1ca73a5c44bc27de3db6035191bd16a671/mcp_atlassian-0.24.1.tar.gz", hash = "sha256:15de5c115c85e51518086f2c0160af820d8e139cf2ae0f25e9e4c11c4d8dddc9", size = 1154858, upload-time = "2026-11-08T15:23:25.155Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/02/88/6c4c6e06cb25ec1b975650a71f01398794d68542adf7e5d7fcd65d432d7a/mcp_atlassian-0.24.3.tar.gz", hash = "sha256:1ffe97f4d1e96f47708323feab8ce67f6a7471bff99efcdead4844c376ad4466", size = 1165696, upload-time = "2026-11-12T10:43:44.408Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0f/12/1c54b69d065df5fc8731b0ed4077d7dc291f40755171db7606b5969417ab/mcp_atlassian-0.24.1-py3-none-any.whl", hash = "sha256:a9adacc871c1d9d64c51213c4bd3d0d6385c4a727c4761ec88f326c83c3b48ac", size = 437858, upload-time = "2026-11-08T15:23:23.725Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/84/435f6c2dd1fb08276be87dcdb68cc6f4f3e0fbc33b5b82a2fef4c0494b2c/mcp_atlassian-0.24.3-py3-none-any.whl", hash = "sha256:d357e87031343f1481a2d7409f258538b1d450b84497c0a1a7956de3f812bc3e", size = 442112, upload-time = "2026-11-12T10:43:43.081Z" },
 ]
 
 [[package]]
