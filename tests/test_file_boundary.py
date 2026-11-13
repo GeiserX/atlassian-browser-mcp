@@ -68,7 +68,11 @@ class _Fake:
 
     def _get(self, url, **_kw):
         self.calls.append(url)
-        return SimpleNamespace(raise_for_status=lambda: None, iter_content=lambda chunk_size: [b"data"])
+        return SimpleNamespace(
+            raise_for_status=lambda: None,
+            iter_content=lambda chunk_size: [b"data"],
+            close=lambda: None,  # upstream closes the response since 0.24.4
+        )
 
     def _add(self, _key, file):
         self.calls.append(file.name)

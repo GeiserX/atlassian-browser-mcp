@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Python 3.11+
+- Python 3.11.5+
 - [uv](https://docs.astral.sh/uv/) (for dependency management)
 - Google Chrome: the CLI and the server use the real `chrome` channel by default (see [Configuration](configuration.md))
 - A graphical display (macOS, X11, or Wayland) for the one-time interactive SSO login

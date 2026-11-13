@@ -7,7 +7,7 @@ name = "atlassian-browser-mcp"
 version = "1.5.0"
 description = "Browser-backed MCP server wrapping upstream mcp-atlassian with Playwright SSO auth"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11.5"
 license = "GPL-3.0-or-later"
 authors = [{ name = "GeiserX" }]
 classifiers = [
@@ -19,7 +19,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
 ]
 dependencies = [
-    "mcp-atlassian>=0.24.3,<1.0.0",
+    "mcp-atlassian>=0.24.4,<1.0.0",
     "playwright>=1.58.0",
     "requests>=2.33.1",
     # 44.0.1 carries the fixes for CVE-2024-26130 and the bundled-OpenSSL
@@ -47,12 +47,6 @@ py-modules = [
     "cookie_harvest",
     "cookie_autoauth",
 ]
-
-[tool.uv]
-# mcp-atlassian 0.24.1 caps cryptography below 47 but never imports it. 46.x
-# has published advisories fixed in 50.0.0, so the lock overrides the cap.
-# This covers the lock only; uvx and pip installs follow upstream's cap.
-override-dependencies = ["cryptography>=50.0.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

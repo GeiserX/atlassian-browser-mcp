@@ -70,7 +70,7 @@ this section is the rationale and the two hard rules.
 ## Key Design Decisions
 
 - **Monkey-patching over forking**: We patch upstream client `__init__` methods at import time rather than maintaining a fork. An `assert_upstream_compatibility()` check validates signatures on startup.
-- **Version pinning**: Pinned to `mcp-atlassian>=0.24.3,<1.0.0` (0.24.1 is the first release that honours `MCP_ATLASSIAN_FILES_DIR` on stdio; the wrapper pins it to a dedicated folder on import), exact versions in `uv.lock` (refresh with `uv lock`). Bump carefully — upstream signature changes will break patches. MCP 2026-07-28 needs mcp>=2 / fastmcp>=4, which upstream still forbids (sooperset/mcp-atlassian#1541).
+- **Version pinning**: Pinned to `mcp-atlassian>=0.24.4,<1.0.0` (0.24.1 is the first release that honours `MCP_ATLASSIAN_FILES_DIR` on stdio; the wrapper pins it to a dedicated folder on import), exact versions in `uv.lock` (refresh with `uv lock`). Bump carefully — upstream signature changes will break patches. MCP 2026-07-28 needs mcp>=2 / fastmcp>=4, which upstream still forbids (sooperset/mcp-atlassian#1541).
 - **No hardcoded URLs**: `JIRA_URL` and `CONFLUENCE_URL` are required env vars with no defaults.
 - **Configurable SSO detection**: `ATLASSIAN_SSO_MARKERS` env var accepts comma-separated markers. Defaults cover Okta, ADFS, Azure AD, PingOne, Google SAML.
 
