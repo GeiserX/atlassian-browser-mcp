@@ -28,6 +28,15 @@ _HARDENING_ENV = {
     "ATLASSIAN_CIRCUIT_BREAKER_THRESHOLD": "50",
 }
 
+# The send wrappers upstream stacks on every adapter (0.24.6 and later), on top
+# of the SsrfPinningAdapter's own send.
+_HARDENING_LAYERS = (
+    "send_with_default_timeout",
+    "breaker_send",
+    "rate_limited_send",
+    "throttled_send",
+)
+
 _CASES = [
     ("jira", JiraClient, JiraConfig, "jira"),
     ("confluence", ConfluenceClient, ConfluenceConfig, "confluence"),
@@ -38,13 +47,32 @@ def _session(client, attr):
     return getattr(client, attr)._session
 
 
+def _send_chain(adapter):
+    """Name every layer of an adapter's send, outermost first.
+
+    Upstream stacks its hardening by wrapping ``adapter.send`` again and again;
+    each wrapper keeps the previous send in a closure variable named
+    ``original_send``. Since 0.24.6 the default-timeout wrapper sits outermost,
+    so the circuit breaker is no longer the top layer and has to be found
+    further down.
+    """
+    chain = []
+    send = adapter.send
+    while send is not None:
+        chain.append(getattr(send, "__qualname__", repr(send)))
+        code = getattr(send, "__code__", None)
+        if code is None or "original_send" not in code.co_freevars:
+            break
+        cell = send.__closure__[code.co_freevars.index("original_send")]
+        send = cell.cell_contents
+    return chain
+
+
 def _shape(session):
     return {
         "hooks": [getattr(h, "__qualname__", repr(h)) for h in session.hooks["response"]],
         "adapters": {p: type(a).__name__ for p, a in session.adapters.items()},
-        "sends": {
-            p: getattr(a.send, "__qualname__", "") for p, a in session.adapters.items()
-        },
+        "sends": {p: _send_chain(a) for p, a in session.adapters.items()},
         "trust_env": session.trust_env,
     }
 
@@ -68,7 +96,15 @@ def test_patched_client_keeps_upstream_hardening(
     assert any("make_ssrf_redirect_hook" in h for h in hooks), hooks
     assert isinstance(patched.get_adapter(f"{base}/x"), SsrfPinningAdapter)
     assert isinstance(patched.get_adapter("https://example.com/x"), SsrfPinningAdapter)
-    assert "breaker_send" in _shape(patched)["sends"]["https://"]
+    for prefix, adapter in patched.adapters.items():
+        chain = _send_chain(adapter)
+        layers = [layer.rsplit(".", 1)[-1] for layer in chain]
+        for layer in _HARDENING_LAYERS:
+            assert layer in layers, (prefix, chain)
+        # The innermost send is the pinning adapter's own, so every layer
+        # above still ends in the DNS-pinned transport.
+        assert isinstance(adapter, SsrfPinningAdapter), (prefix, chain)
+        assert chain[-1] == f"{type(adapter).__name__}.send", (prefix, chain)
     assert "Authorization" not in patched.headers
     assert patched.headers["X-Atlassian-Token"] == "no-check"
     assert patched.headers["Origin"] == base
