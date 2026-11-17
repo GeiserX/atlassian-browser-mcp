@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.5.1 - 2026-11-17
+
+### Security
+
+- Requires mcp-atlassian 0.24.6 (#48). Version 1.5.0 allowed any mcp-atlassian from 0.24.1, so a new install could get 0.24.5. In 0.24.5, Confluence writes with Markdown content that run at the same time can store malformed content, or the content of another call (GHSA-3c26-hw8g-vvc9). 0.24.6 fixes this.
+- The lock moves soupsieve to 4.1, which fixes a denial of service in CSS selector matching (GHSA-mmhr-3c5m-f64f) (#44).
+- mcp-atlassian 0.24.4 and later require cryptography 50 or newer, so `uvx` and `pip` installs now get cryptography 50 too. The lock override from 1.5.0 is removed (#44).
+
+### Fixed
+
+- Jira and Confluence attachments by path and `content_file` work on Windows again. mcp-atlassian 0.24.1 and 0.24.2 failed every confined file read or write there with `PermissionError` (#42).
+- The stdio server exits on SIGTERM and Ctrl+C, and attachment download responses are closed (mcp-atlassian 0.24.4) (#44).
+
+### Changed
+
+- Requires Python 3.11.5 or later, because soupsieve 4 needs it (#44).
+- The lock moves Playwright to 1.65.1 (#47).
+
 ## 1.5.0 - 2026-11-11
 
 ### Security
