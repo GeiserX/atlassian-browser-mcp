@@ -70,7 +70,7 @@ this section is the rationale and the two hard rules.
 ## Key Design Decisions
 
 - **Monkey-patching over forking**: We patch upstream client `__init__` methods at import time rather than maintaining a fork. An `assert_upstream_compatibility()` check validates signatures on startup.
-- **Version pinning**: Pinned to `mcp-atlassian>=0.24.6,<1.0.0` (0.24.6 fixes GHSA-3c26-hw8g-vvc9, where 0.24.5 could store malformed or mixed-up content from parallel Confluence Markdown writes; 0.24.1 is the first release that honours `MCP_ATLASSIAN_FILES_DIR` on stdio; the wrapper pins it to a dedicated folder on import), exact versions in `uv.lock` (refresh with `uv lock`). Bump carefully — upstream signature changes will break patches. MCP 2026-07-28 needs mcp>=2 / fastmcp>=4, which upstream still forbids (sooperset/mcp-atlassian#1541).
+- **Version pinning**: Pinned to `mcp-atlassian>=0.24.7,<1.0.0` (0.24.7 fixes GHSA-62qq-4q8q-5244, where a short URL followed by many dots could keep a Confluence Markdown write busy without end; 0.24.6 fixes GHSA-3c26-hw8g-vvc9, where 0.24.5 could store malformed or mixed-up content from parallel Confluence Markdown writes; 0.24.1 is the first release that honours `MCP_ATLASSIAN_FILES_DIR` on stdio; the wrapper pins it to a dedicated folder on import), exact versions in `uv.lock` (refresh with `uv lock`). Bump carefully — upstream signature changes will break patches. MCP 2026-07-28 needs mcp>=2 / fastmcp>=4, which upstream still forbids (sooperset/mcp-atlassian#1541).
 - **No hardcoded URLs**: `JIRA_URL` and `CONFLUENCE_URL` are required env vars with no defaults.
 - **Configurable SSO detection**: `ATLASSIAN_SSO_MARKERS` env var accepts comma-separated markers. Defaults cover Okta, ADFS, Azure AD, PingOne, Google SAML.
 
