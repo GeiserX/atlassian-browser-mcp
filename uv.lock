@@ -63,7 +63,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography", specifier = ">=44.0.1" },
-    { name = "mcp-atlassian", specifier = ">=0.24.6,<1.0.0" },
+    { name = "mcp-atlassian", specifier = ">=0.24.7,<1.0.0" },
     { name = "playwright", specifier = ">=1.58.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "requests", specifier = ">=2.33.1" },
@@ -1230,7 +1230,7 @@ wheels = [
 
 [[package]]
 name = "mcp-atlassian"
-version = "0.24.6"
+version = "0.24.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1248,6 +1248,7 @@ dependencies = [
     { name = "markdownify" },
     { name = "mcp" },
     { name = "pydantic" },
+    { name = "pymdown-extensions" },
     { name = "python-dateutil" },
     { name = "python-dotenv" },
     { name = "requests", extra = ["socks"] },
@@ -1262,9 +1263,9 @@ dependencies = [
     { name = "urllib3" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5b/01/fdf2776b4132d2c1b0976da09bbf3f1d46617038a3cc42a0db58abfd7bcb/mcp_atlassian-0.24.6.tar.gz", hash = "sha256:1ca13866e7d3a6b6357ed8b146617a5ffd848078862efad9965c165b484c8be7", size = 1255434, upload-time = "2026-11-16T09:59:49.749Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8b/52/2ca072889113094182377c9543ab45e36b26a5aa2723d34a4170423d740e/mcp_atlassian-0.24.7.tar.gz", hash = "sha256:e4dcb0f575451817d405d3defb898b4d585260a6f9d7b042c3efdfd3f42aaa98", size = 1257422, upload-time = "2026-11-20T00:11:41.628Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/69/ec/3af03eea48868ac48bc34e57e590693baf34a9323e1c860f0af8d60293fe/mcp_atlassian-0.24.6-py3-none-any.whl", hash = "sha256:d515b53b7b3f330c94ac6b675bcf2bdd244deb725f5db575575627dfe0786070", size = 481125, upload-time = "2026-11-16T09:59:47.892Z" },
+    { url = "https://files.pythonhosted.org/packages/e8/28/ee5f0cc7551e4581efcac5f6188fcbf753aadb9b4b6336bf7571b9f58901/mcp_atlassian-0.24.7-py3-none-any.whl", hash = "sha256:cb8018fc422905284cd309daafb82bb60f84dcf1a16da2412c56d2bf48c416bc", size = 481631, upload-time = "2026-11-20T00:11:39.992Z" },
 ]
 
 [[package]]
