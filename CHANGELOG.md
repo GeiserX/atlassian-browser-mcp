@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.2 - 2026-11-23
+
+### Security
+
+- Requires mcp-atlassian 0.24.7 (#51). Version 1.5.1 allowed mcp-atlassian 0.24.6, so a new install could still get it. In 0.24.6, a Confluence write with Markdown content that holds a short URL followed by many dots can run without end (GHSA-62qq-4q8q-5244). 0.24.7 fixes this.
+
 ## 1.5.1 - 2026-11-17
 
 ### Security
