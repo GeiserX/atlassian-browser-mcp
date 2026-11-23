@@ -45,5 +45,24 @@ jobs:
           .github/scripts/wait-for-pypi.sh \
             "$(jq -r '.packages[0].identifier' server.json)" \
             "$(jq -r '.packages[0].version' server.json)"
-      - run: ./mcp-publisher login github-oidc
-      - run: ./mcp-publisher publish
+      # The runner can see the new version on PyPI before the registry's own
+      # PyPI lookup does, and the registry then answers 400 "version ... was not
+      # found (status: 404)" (v1.5.3, 2026-11-23). Retry only that answer, with a
+      # fresh login each time; any other error fails at once.
+      - name: Publish to the MCP Registry
+        run: |
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            ./mcp-publisher login github-oidc
+            if out=$(./mcp-publisher publish 2>&1); then
+              echo "$out"
+              exit 0
+            fi
+            echo "$out"
+            if ! grep -q "was not found (status: 404)" <<<"$out"; then
+              exit 1
+            fi
+            echo "attempt ${attempt}: the registry does not see the PyPI version yet; retrying in 30 s"
+            sleep 30
+          done
+          echo "the registry still does not see the PyPI version after 10 attempts" >&2
+          exit 1
