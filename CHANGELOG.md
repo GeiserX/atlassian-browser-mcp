@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.5.3 - 2026-11-23
+
+### Security
+
+- Requires mcp-atlassian 0.24.8 (#54). Version 1.5.2 allowed mcp-atlassian 0.24.7, so a new install could still get it. In 0.24.7, a Confluence comment body that starts with `<` is sent as raw storage format, although the comment tools document Markdown (GHSA-68x4-2r5j-m2jr). Crafted Markdown, wiki markup or ADF can keep a Jira or Confluence conversion busy for a long time (GHSA-6567-g8vf-xq69, GHSA-rw8f-cvm7-4j63). With PAC/WPAD proxy support on, Jira and Confluence sessions lose the dot-segment request guard (GHSA-v49j-6r3q-mm6w). Some paths still let a caller reach issues outside `JIRA_PROJECTS_FILTER` (GHSA-45jx-jvrm-qvm2). 0.24.8 fixes all of these. Its other three advisories cover the HTTP transport, which this server does not run.
+
+### Changed
+
+- `confluence_add_comment`, `confluence_reply_to_comment` and `confluence_add_inline_comment` now always treat the body as Markdown, also when it starts with `<`. To send Confluence storage format, pass `content_format="storage"`.
+- Responses that are not streamed now stop at 64 MiB after decompression. Set `ATLASSIAN_MAX_RESPONSE_BYTES` to change the limit. Attachment downloads are streamed and have no limit.
+- `ATLASSIAN_MAX_CONCURRENT_REQUESTS` and `ATLASSIAN_REQUESTS_PER_SECOND` now count per site. With Jira and Confluence on different hosts, the total can be up to twice the value you set.
+
 ## 1.5.2 - 2026-11-23
 
 ### Security

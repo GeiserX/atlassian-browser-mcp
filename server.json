@@ -9,13 +9,13 @@
     "source": "github",
     "id": "1202791063"
   },
-  "version": "1.5.2",
+  "version": "1.5.3",
   "packages": [
     {
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "atlassian-browser-mcp",
-      "version": "1.5.2",
+      "version": "1.5.3",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"
